@@ -99,6 +99,19 @@ if (process.defaultApp) {
 var rpc = new DiscordRPC.Client({ transport: "ipc" });
 function resolveIcon() {
     const candidates = [
+        // Prefer .ico on Windows for proper taskbar/window icon
+        path.join(__dirname, "tray_icon.ico"),
+        path.join(__dirname, "../electron/tray_icon.ico"),
+        path.join(app.getAppPath ? app.getAppPath() : __dirname, "electron/tray_icon.ico"),
+        path.join(__dirname, "tray_icon.png"),
+        path.join(__dirname, "../electron/tray_icon.png"),
+        path.join(app.getAppPath ? app.getAppPath() : __dirname, "electron/tray_icon.png")
+    ];
+    return candidates.find(p => require("fs").existsSync(p)) || null;
+}
+function resolveTrayPng() {
+    // Tray always needs PNG on all platforms
+    const candidates = [
         path.join(__dirname, "tray_icon.png"),
         path.join(__dirname, "../electron/tray_icon.png"),
         path.join(app.getAppPath ? app.getAppPath() : __dirname, "electron/tray_icon.png")
@@ -240,12 +253,11 @@ app.whenReady().then(() => {
     });
 
     // System Tray
-    const resolvedIcon = resolveIcon();
-    const trayIcon = resolvedIcon
-        ? nativeImage.createFromPath(resolvedIcon).resize({ width: 32, height: 32 })
+    const trayPng = resolveTrayPng();
+    const trayIcon = trayPng
+        ? nativeImage.createFromPath(trayPng).resize({ width: 32, height: 32 })
         : nativeImage.createEmpty();
     tray = new Tray(trayIcon);
-    tray.setToolTip("Crystalline Launcher");
     tray.setToolTip("Crystalline Launcher");
 
     // Create custom tray menu window
@@ -266,7 +278,7 @@ app.whenReady().then(() => {
             preload: path.join(__dirname, "preload.js")
         }
     });
-    trayWindow.loadFile(path.join(__dirname, "../src/tray.html"));
+    trayWindow.loadFile(path.join(__dirname, "tray.html"));
 
     trayWindow.on("blur", () => {
         trayWindow.hide();
@@ -366,9 +378,13 @@ ipcMain.handle("discord-login", async () => {
           <html><body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #080B10; color: #fff;">
           <h2>Logging into Crystalline... Please wait.</h2>
           <script>
+            // Try hash fragment first (standard OAuth implicit flow), fall back to query string
+            const hashParams = window.location.hash.substring(1);
+            const queryParams = window.location.search.substring(1);
+            const tokenBody = hashParams.length > 0 ? hashParams : queryParams;
             fetch('/token', {
               method: 'POST',
-              body: window.location.hash.substring(1)
+              body: tokenBody
             }).then(() => {
               document.body.innerHTML = '<h2 style="color:#00edab">Login successful! You can close this tab.</h2>';
               setTimeout(() => window.close(), 1000);
@@ -387,12 +403,18 @@ ipcMain.handle("discord-login", async () => {
                     if (resolved) return;
                     resolved = true;
                     try {
-                        const accessToken = new URLSearchParams(body).get("access_token");
+                        // Try both hash-style params and query-string-style params
+                        let accessToken = new URLSearchParams(body).get("access_token");
+                        if (!accessToken && body.includes("code=")) {
+                            // Authorization code flow fallback (not expected but handle gracefully)
+                            accessToken = new URLSearchParams(body).get("code");
+                        }
                         if (!accessToken) {
+                            console.error("[DISCORD LOGIN] Token body received:", body.substring(0, 100));
                             server.close();
                             resolve({
                                 success: false,
-                                error: "No access token returned"
+                                error: "No access token returned. Bitte versuche es erneut — stell sicher, dass du im Browser auf 'Authorize' klickst."
                             });
                             return;
                         }
@@ -838,7 +860,7 @@ ipcMain.handle("download-modpack-urls", async (event, urls, instanceId) => {
 });
 
 
-ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loader, loaderVersion, instanceId, details, state }) => {
+ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loader, loaderVersion, instanceId, details, state, joinSecret, partyId, partySize, partyMax }) => {
     try {
         const activity = {
             details: details || "Playing Crystalline",
@@ -872,14 +894,12 @@ ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loa
                 activity.partySize = 1;
                 activity.partyMax = 20;
             }
-        } else if (event && partyState && partyState.groupId) {
-            // Allow updating presence while idle in a party
-            if (arguments[1].joinSecret) {
-                activity.joinSecret = arguments[1].joinSecret;
-                activity.partyId = arguments[1].partyId;
-                activity.partySize = arguments[1].partySize;
-                activity.partyMax = arguments[1].partyMax;
-            }
+        } else if (joinSecret && partyId) {
+            // Party data passed directly (e.g. idle in party, waiting for friends)
+            activity.joinSecret = joinSecret;
+            activity.partyId = partyId;
+            activity.partySize = partySize || 1;
+            activity.partyMax = partyMax || 10;
         }
 
         rpc.setActivity(activity);
@@ -897,9 +917,17 @@ ipcMain.handle("send-discord-invite", async (event, userId) => {
         await rpc.sendJoinInvite({ id: userId });
         return { success: true };
     } catch (err) {
+        // Discord RPC throws "Unknown Error" even when the invite popup actually works
         if (err.message === "Unknown Error" || err.code === 1000) {
-            // Discord RPC throws this even when the invite popup works
             return { success: true };
+        }
+        // "No eligible activity" means the presence has no party+joinSecret set
+        if (err.message && (err.message.includes("eligible activity") || err.message.includes("4006") || err.code === 4006)) {
+            console.error("[INVITE] No party activity set – cannot send RPC invite", err.message);
+            return {
+                success: false,
+                error: "Discord konnte keine Einladung senden, weil noch keine Spielaktivität mit Party-Infos gesetzt ist. Starte zuerst ein Spiel oder verbinde dich mit einem Server."
+            };
         }
         console.error("[INVITE] sendJoinInvite failed:", err.message);
         return {
