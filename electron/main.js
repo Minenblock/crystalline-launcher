@@ -278,7 +278,15 @@ app.whenReady().then(() => {
             preload: path.join(__dirname, "preload.js")
         }
     });
-    trayWindow.loadFile(path.join(__dirname, "tray.html"));
+    const trayHtmlPath = (() => {
+        const candidates = [
+            path.join(__dirname, "tray.html"),                          // dev: electron/main.js -> electron/tray.html
+            path.join(app.getAppPath(), "electron", "tray.html"),       // prod ASAR: app root -> electron/tray.html
+            path.join(__dirname, "..", "electron", "tray.html"),        // fallback
+        ];
+        return candidates.find(p => require("fs").existsSync(p)) || candidates[1];
+    })();
+    trayWindow.loadFile(trayHtmlPath);
 
     trayWindow.on("blur", () => {
         trayWindow.hide();
