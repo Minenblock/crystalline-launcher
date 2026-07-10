@@ -1,0 +1,74 @@
+{
+  "name": "crystalline-launcher",
+  "version": "1.0.0",
+  "description": "Crystalline-Launcher",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "dist": "vite build && electron-builder"
+  },
+  "keywords": [],
+  "author": "Minenblock",
+  "license": "ISC",
+  "type": "commonjs",
+  "build": {
+    "appId": "de.crystalline.launcher",
+    "productName": "Crystalline-Launcher",
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Minenblock",
+        "repo": "crystalline-launcher"
+      }
+    ],
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "electron/tray_icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Crystalline-Launcher"
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "vite": "^8.1.3",
+    "vite-plugin-electron": "^1.1.0",
+    "vite-plugin-electron-renderer": "^1.0.0"
+  },
+  "dependencies": {
+    "@xmcl/core": "^2.15.1",
+    "@xmcl/installer": "^6.1.2",
+    "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.8.9",
+    "extract-zip": "^2.0.1",
+    "form-data": "^4.0.6",
+    "minecraft-launcher-core": "^3.18.2",
+    "mqtt": "^5.15.2",
+    "msmc": "^5.0.5",
+    "node-fetch": "^2.7.0",
+    "skinview3d": "^3.4.2",
+    "sweetalert2": "^11.26.25"
+  }
+}
