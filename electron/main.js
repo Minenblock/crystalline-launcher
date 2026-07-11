@@ -381,9 +381,9 @@ ipcMain.handle("discord-login", async () => {
         let resolved = false;
         const server = http.createServer((req, res) => {
             if (req.url.startsWith("/callback")) {
-                // Step 1: Browser lands here after Discord redirect (token is in the #hash fragment).
-                // We serve JS that reads the hash and redirects to /authorize?access_token=...
-                // The server can then read the token directly from req.url — no fragile POST body needed.
+                // Step 1: Browser lands here after Discord redirect.
+                // Token is in #hash fragment — JS reads it and redirects to /authorize?...
+                // so Node.js can read it directly from req.url (no fragile POST body).
                 res.writeHead(200, { "Content-Type": "text/html" });
                 res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
           <h2>Logging into Crystalline...</h2>
@@ -394,29 +394,47 @@ ipcMain.handle("discord-login", async () => {
             if (params.length > 0) {
               window.location.href = '/authorize?' + params;
             } else {
-              document.body.innerHTML = '<h2 style="color:#FF4B4B">Fehler: Keine Token-Daten von Discord erhalten.</h2>';
+              window.location.href = '/authorize?_empty=1';
             }
           </script>
           </body></html>`);
             } else if (req.url.startsWith("/authorize")) {
-                // Step 2: Token is in the URL query string — Node reads it directly from req.url
+                // Step 2: Read token directly from URL query string
+                const rawQuery = req.url.split("?")[1] || "";
+                const urlParams = new URLSearchParams(rawQuery);
+                const accessToken = urlParams.get("access_token");
+                const discordError = urlParams.get("error");
+                const discordErrorDesc = urlParams.get("error_description");
+
+                console.log("[DISCORD LOGIN] /authorize received. access_token present:", !!accessToken, "| error:", discordError, "| raw query snippet:", rawQuery.substring(0, 80));
+
                 res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
+                if (accessToken) {
+                    res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
           <h2 style="color:#00edab">Login successful! You can close this tab.</h2>
           <script>setTimeout(function(){ window.close(); }, 1500);</script>
           </body></html>`);
+                } else {
+                    const msg = discordError ? `Discord Error: ${discordError} — ${discordErrorDesc || ""}` : "No token received.";
+                    res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
+          <h2 style="color:#FF4B4B">${msg}</h2>
+          </body></html>`);
+                }
+
                 if (resolved) return;
                 resolved = true;
+
+                if (!accessToken) {
+                    server.close();
+                    const errMsg = discordError
+                        ? `Discord verweigerte den Zugriff: ${discordError}. Stelle sicher, dass du im Browser auf "Authorize" klickst.`
+                        : "No access token returned. Bitte versuche es erneut.";
+                    resolve({ success: false, error: errMsg });
+                    return;
+                }
+
                 (async () => {
                     try {
-                        const urlParams = new URLSearchParams(req.url.split("?")[1] || "");
-                        const accessToken = urlParams.get("access_token");
-                        if (!accessToken) {
-                            console.error("[DISCORD LOGIN] /authorize hit but no access_token. URL:", req.url.substring(0, 200));
-                            server.close();
-                            resolve({ success: false, error: "No access token returned. Bitte versuche es erneut." });
-                            return;
-                        }
                         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
                         let friends = [];
                         try {
@@ -451,7 +469,8 @@ ipcMain.handle("discord-login", async () => {
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20relationships.read%20rpc`;
+            // Note: no "rpc" scope here — we use rpc.authenticate() separately after login
+            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20relationships.read`;
             shell.openExternal(authUrl);
         });
         setTimeout(() => {
@@ -463,6 +482,7 @@ ipcMain.handle("discord-login", async () => {
         }, 12e4);
     });
 });
+
 
 ipcMain.handle("msmc-login", async () => {
     try {
