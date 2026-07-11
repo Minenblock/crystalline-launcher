@@ -352,7 +352,7 @@ app.whenReady().then(() => {
             console.log("[INVITE] Received ACTIVITY_JOIN, secret:", secret);
             pendingJoinServer = secret;
             if (mainWindow) mainWindow.webContents.send("discord-activity-join", secret);
-        });
+        }).catch(e => console.log("[RPC] ACTIVITY_JOIN subscribe failed:", e.message));
         // When a friend clicks "Join" in Discord, ask the host for approval
         rpc.subscribe("ACTIVITY_JOIN_REQUEST", (user) => {
             console.log("[INVITE] ACTIVITY_JOIN_REQUEST from:", user.username);
@@ -362,7 +362,7 @@ app.whenReady().then(() => {
                 discriminator: user.discriminator,
                 avatar: user.avatar
             });
-        });
+        }).catch(e => console.log("[RPC] ACTIVITY_JOIN_REQUEST subscribe failed:", e.message));
     });
     rpc.login({ clientId }).catch((err) => {
         console.error("Discord RPC login failed:", err);
@@ -437,13 +437,15 @@ ipcMain.handle("discord-login", async () => {
                     try {
                         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
                         let friends = [];
-                        // Friends are fetched via Discord RPC (local client) — no HTTP relationships scope needed
+                        // Use rpc.login with rpc scope via Discord desktop native flow (no web OAuth needed)
+                        // This grants the rpc scope through Discord's own popup, enabling ACTIVITY_JOIN subscribe
                         try {
-                            await rpc.authenticate(accessToken);
+                            await rpc.login({ clientId, accessToken, scopes: ["rpc", "identify"] });
+                            console.log("[RPC] rpc.login with rpc scope succeeded");
                             const rpcFriends = await rpc.getRelationships();
                             if (Array.isArray(rpcFriends)) friends = rpcFriends;
                         } catch (rpcErr) {
-                            console.log("RPC getRelationships failed:", rpcErr.message);
+                            console.log("[RPC] rpc.login with scope failed, RPC works via startup login:", rpcErr.message);
                         }
                         await writeEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"), { accessToken }).catch(() => { });
                         server.close();
@@ -632,35 +634,29 @@ ipcMain.handle("check-discord-auth", async () => {
     try {
         const { accessToken } = await readEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"));
         if (!accessToken) return { success: false };
-        const withTimeout = (prom, ms) => Promise.race([prom, new Promise((_, rej) => setTimeout(() => rej(/* @__PURE__ */ new Error("timeout")), ms))]);
+
+        // Always fetch user info first — this works with just "identify" scope
+        const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
+
+        const withTimeout = (prom, ms) => Promise.race([prom, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
         let friendsRes = [];
+
+        // Try to get friends via RPC (requires Discord desktop to be running and rpc.login to have succeeded)
         try {
-            console.log("Trying getRelationships on existing auth...");
+            // First try without re-authenticating (RPC already connected from startup)
             friendsRes = await withTimeout(rpc.getRelationships(), 2e3);
         } catch (e0) {
-            console.log("Needs auth:", e0.message);
             try {
+                // Try authenticating with token (only works if token has rpc scope)
                 await withTimeout(rpc.authenticate(accessToken), 3e3);
-                console.log("rpc.authenticate succeeded");
                 friendsRes = await withTimeout(rpc.getRelationships(), 2e3);
             } catch (e) {
-                console.log("rpc.authenticate failed:", e.message);
-                try {
-                    await withTimeout(rpc.login({
-                        clientId,
-                        accessToken,
-                        scopes: ["rpc", "relationships.read"]
-                    }), 5e3);
-                    console.log("rpc.login succeeded");
-                    friendsRes = await withTimeout(rpc.getRelationships(), 2e3);
-                } catch (e2) {
-                    console.log("rpc.login fallback failed:", e2.message);
-                    return { success: false };
-                }
+                // RPC auth failed — token lacks rpc scope or Discord desktop not running
+                // This is expected — return success with empty friends list
+                console.log("RPC friends unavailable (no rpc scope or Discord not running):", e.message);
             }
         }
-        console.log("Fetching user...");
-        const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
+
         if (mainWindow) mainWindow.webContents.send("discord-status", "Connected (Rich Presence Active)");
         return {
             success: true,
