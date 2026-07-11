@@ -364,9 +364,19 @@ app.whenReady().then(() => {
             });
         }).catch(e => console.log("[RPC] ACTIVITY_JOIN_REQUEST subscribe failed:", e.message));
     });
-    rpc.login({ clientId }).catch((err) => {
-        console.error("Discord RPC login failed:", err);
-        if (mainWindow) mainWindow.webContents.send("discord-status", "Connection failed");
+    // Request rpc + identify via Discord Desktop native auth flow (one-time popup in Discord)
+    // This is required for ACTIVITY_JOIN subscribe to work — Discord rejects it without the rpc scope
+    rpc.login({
+        clientId,
+        scopes: ["rpc", "identify"],
+        redirectUri: `http://127.0.0.1:34321/callback`
+    }).catch((err) => {
+        console.error("Discord RPC login failed:", err.message);
+        // Fallback: try without scopes (Rich Presence still works, but ACTIVITY_JOIN subscribe may fail)
+        rpc.login({ clientId }).catch((err2) => {
+            console.error("Discord RPC login fallback failed:", err2.message);
+            if (mainWindow) mainWindow.webContents.send("discord-status", "Connection failed");
+        });
     });
 });
 app.on("window-all-closed", function () {
