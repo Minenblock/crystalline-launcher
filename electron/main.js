@@ -437,19 +437,13 @@ ipcMain.handle("discord-login", async () => {
                     try {
                         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
                         let friends = [];
+                        // Friends are fetched via Discord RPC (local client) — no HTTP relationships scope needed
                         try {
-                            const friendsRes = await httpsGet("discord.com", "/api/v10/users/@me/relationships", { Authorization: `Bearer ${accessToken}` });
-                            if (Array.isArray(friendsRes) && friendsRes.length > 0) friends = friendsRes;
-                            else throw new Error("HTTP returned empty or blocked");
-                        } catch (e) {
-                            console.log("HTTP relationships blocked, trying IPC fallback...");
-                            try {
-                                await rpc.authenticate(accessToken);
-                                const rpcFriends = await rpc.getRelationships();
-                                if (Array.isArray(rpcFriends)) friends = rpcFriends;
-                            } catch (rpcErr) {
-                                console.log("IPC relationships failed:", rpcErr.message);
-                            }
+                            await rpc.authenticate(accessToken);
+                            const rpcFriends = await rpc.getRelationships();
+                            if (Array.isArray(rpcFriends)) friends = rpcFriends;
+                        } catch (rpcErr) {
+                            console.log("RPC getRelationships failed:", rpcErr.message);
                         }
                         await writeEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"), { accessToken }).catch(() => { });
                         server.close();
@@ -469,7 +463,8 @@ ipcMain.handle("discord-login", async () => {
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20relationships.read%20rpc`;
+            // relationships.read requires Discord privileged approval — fetch friends via rpc.getRelationships() instead
+            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20rpc`;
             shell.openExternal(authUrl);
         });
         setTimeout(() => {
