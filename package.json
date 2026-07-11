@@ -1,6 +1,6 @@
 {
   "name": "crystalline-launcher",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Crystalline-Launcher",
   "main": "dist-electron/main.js",
   "scripts": {

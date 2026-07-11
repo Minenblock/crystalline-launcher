@@ -469,8 +469,7 @@ ipcMain.handle("discord-login", async () => {
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
-            // Note: no "rpc" scope here — we use rpc.authenticate() separately after login
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20relationships.read`;
+            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20relationships.read%20rpc`;
             shell.openExternal(authUrl);
         });
         setTimeout(() => {
