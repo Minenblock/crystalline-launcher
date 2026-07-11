@@ -3108,37 +3108,54 @@ ipcMain.handle("create-party", async (event) => {
 ipcMain.handle("join-party", async (event, groupId, aesKey, user) => {
     if (partyClient) {
         partyClient.end();
+        partyClient = null;
     }
     partyState = { groupId, aesKey, members: [] };
 
-    partyClient = mqtt.connect(mqttBrokerUrl);
-    partyClient.on("connect", () => {
-        partyClient.subscribe(`crystalline/party/${groupId}`);
-        console.log("[PARTY] Joined party:", groupId);
-        partyClient.publish(`crystalline/party/${groupId}`, encryptPayload({
-            type: "join", user: user
-        }, aesKey));
-    });
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+            console.error("[PARTY] MQTT connection timed out for group:", groupId);
+            resolve({ error: "Could not connect to party server (timeout). Check your internet connection." });
+        }, 8000);
 
-    partyClient.on("message", (topic, message) => {
-        const payload = decryptPayload(message.toString("utf8"), partyState.aesKey);
-        if (!payload) return;
-        if (payload.type === "sync") {
-            partyState.members = payload.members;
-            if (mainWindow) mainWindow.webContents.send("party-update", partyState);
-        } else if (payload.type === "join") {
-            const exists = partyState.members.find(m => m.id === payload.user.id);
-            if (!exists) {
-                partyState.members.push(payload.user);
-                if (mainWindow) mainWindow.webContents.send("party-update", partyState);
-            }
-        } else if (payload.type === "start_instance") {
-            if (mainWindow) mainWindow.webContents.send("party-start-instance", payload);
-        } else if (payload.type === "chat") {
-            if (mainWindow) mainWindow.webContents.send("party-chat-message", payload);
-        }
+        partyClient = mqtt.connect(mqttBrokerUrl);
+
+        partyClient.on("error", (err) => {
+            clearTimeout(timeout);
+            console.error("[PARTY] MQTT connection error:", err.message);
+            resolve({ error: "Party connection failed: " + err.message });
+        });
+
+        partyClient.on("connect", () => {
+            clearTimeout(timeout);
+            partyClient.subscribe(`crystalline/party/${groupId}`);
+            console.log("[PARTY] Joined party:", groupId);
+            partyClient.publish(`crystalline/party/${groupId}`, encryptPayload({
+                type: "join", user: user
+            }, aesKey));
+
+            partyClient.on("message", (topic, message) => {
+                const payload = decryptPayload(message.toString("utf8"), partyState.aesKey);
+                if (!payload) return;
+                if (payload.type === "sync") {
+                    partyState.members = payload.members;
+                    if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+                } else if (payload.type === "join") {
+                    const exists = partyState.members.find(m => m.id === payload.user.id);
+                    if (!exists) {
+                        partyState.members.push(payload.user);
+                        if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+                    }
+                } else if (payload.type === "start_instance") {
+                    if (mainWindow) mainWindow.webContents.send("party-start-instance", payload);
+                } else if (payload.type === "chat") {
+                    if (mainWindow) mainWindow.webContents.send("party-chat-message", payload);
+                }
+            });
+
+            resolve(true);
+        });
     });
-    return true;
 });
 
 ipcMain.handle("leave-party", async (event) => {

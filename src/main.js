@@ -758,20 +758,40 @@ window.sendInvite = async (userId, username) => {
 
 // When a friend accepts our invite, Discord sends us the joinSecret (= server IP)
 window.electronAPI.onDiscordActivityJoin(async (secret) => {
+  console.log('[INVITE] discord-activity-join received, secret:', secret);
   if (secret) {
     if (secret.startsWith('group:')) {
       const gParts = secret.split(':');
-      if (gParts.length === 3 && currentDiscordUser) {
+      if (gParts.length < 3) {
+        console.warn('[INVITE] Invalid group secret format:', secret);
+        return;
+      }
+      if (!currentDiscordUser) {
         Swal.fire({
-          title: 'Joining Group',
-          text: 'Connecting to party...',
-          allowOutsideClick: false,
-          didOpen: () => Swal.showLoading()
+          title: 'Discord not linked',
+          text: 'You need to link your Discord account in the launcher before joining a party.',
+          icon: 'warning',
+          confirmButtonText: 'OK'
         });
-        await window.electronAPI.joinParty(gParts[1], gParts[2], currentDiscordUser);
+        return;
+      }
+      Swal.fire({
+        title: 'Joining Group',
+        text: 'Connecting to party...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+      try {
+        const result = await window.electronAPI.joinParty(gParts[1], gParts[2], currentDiscordUser);
+        if (result && result.error) {
+          Swal.fire('Party Error', result.error, 'error');
+          return;
+        }
         Swal.close();
         // Switch to friends view to see the party
         navFriends.click();
+      } catch (e) {
+        Swal.fire('Party Error', 'Could not connect to party: ' + e.message, 'error');
       }
       return;
     }
