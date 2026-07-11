@@ -381,49 +381,40 @@ ipcMain.handle("discord-login", async () => {
         let resolved = false;
         const server = http.createServer((req, res) => {
             if (req.url.startsWith("/callback")) {
+                // Step 1: Browser lands here after Discord redirect (token is in the #hash fragment).
+                // We serve JS that reads the hash and redirects to /authorize?access_token=...
+                // The server can then read the token directly from req.url — no fragile POST body needed.
                 res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(`
-          <html><body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #080B10; color: #fff;">
-          <h2>Logging into Crystalline... Please wait.</h2>
+                res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
+          <h2>Logging into Crystalline...</h2>
           <script>
-            // Try hash fragment first (standard OAuth implicit flow), fall back to query string
-            const hashParams = window.location.hash.substring(1);
-            const queryParams = window.location.search.substring(1);
-            const tokenBody = hashParams.length > 0 ? hashParams : queryParams;
-            fetch('/token', {
-              method: 'POST',
-              body: tokenBody
-            }).then(() => {
-              document.body.innerHTML = '<h2 style="color:#00edab">Login successful! You can close this tab.</h2>';
-              setTimeout(() => window.close(), 1000);
-            }).catch(() => {
-              document.body.innerHTML = '<h2 style="color:#FF4B4B">Login failed to process on the local server.</h2>';
-            });
+            var hash = window.location.hash.substring(1);
+            var query = window.location.search.substring(1);
+            var params = hash.length > 0 ? hash : query;
+            if (params.length > 0) {
+              window.location.href = '/authorize?' + params;
+            } else {
+              document.body.innerHTML = '<h2 style="color:#FF4B4B">Fehler: Keine Token-Daten von Discord erhalten.</h2>';
+            }
           </script>
-          </body></html>
-        `);
-            } else if (req.url === "/token" && req.method === "POST") {
-                let body = "";
-                req.on("data", (chunk) => body += chunk.toString());
-                req.on("end", async () => {
-                    res.writeHead(200);
-                    res.end("OK");
-                    if (resolved) return;
-                    resolved = true;
+          </body></html>`);
+            } else if (req.url.startsWith("/authorize")) {
+                // Step 2: Token is in the URL query string — Node reads it directly from req.url
+                res.writeHead(200, { "Content-Type": "text/html" });
+                res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
+          <h2 style="color:#00edab">Login successful! You can close this tab.</h2>
+          <script>setTimeout(function(){ window.close(); }, 1500);</script>
+          </body></html>`);
+                if (resolved) return;
+                resolved = true;
+                (async () => {
                     try {
-                        // Try both hash-style params and query-string-style params
-                        let accessToken = new URLSearchParams(body).get("access_token");
-                        if (!accessToken && body.includes("code=")) {
-                            // Authorization code flow fallback (not expected but handle gracefully)
-                            accessToken = new URLSearchParams(body).get("code");
-                        }
+                        const urlParams = new URLSearchParams(req.url.split("?")[1] || "");
+                        const accessToken = urlParams.get("access_token");
                         if (!accessToken) {
-                            console.error("[DISCORD LOGIN] Token body received:", body.substring(0, 100));
+                            console.error("[DISCORD LOGIN] /authorize hit but no access_token. URL:", req.url.substring(0, 200));
                             server.close();
-                            resolve({
-                                success: false,
-                                error: "No access token returned. Bitte versuche es erneut — stell sicher, dass du im Browser auf 'Authorize' klickst."
-                            });
+                            resolve({ success: false, error: "No access token returned. Bitte versuche es erneut." });
                             return;
                         }
                         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
@@ -444,29 +435,19 @@ ipcMain.handle("discord-login", async () => {
                         }
                         await writeEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"), { accessToken }).catch(() => { });
                         server.close();
-                        resolve({
-                            success: true,
-                            user: userRes,
-                            friends
-                        });
+                        resolve({ success: true, user: userRes, friends });
                     } catch (err) {
                         server.close();
-                        resolve({
-                            success: false,
-                            error: err.message
-                        });
+                        resolve({ success: false, error: err.message });
                     }
-                });
+                })();
             }
         });
         const PORT = 34321;
         server.on("error", (err) => {
             if (!resolved) {
                 resolved = true;
-                resolve({
-                    success: false,
-                    error: "Could not start local server for OAuth callback on port 34321. Is it in use?"
-                });
+                resolve({ success: false, error: "Could not start local server for OAuth callback on port 34321. Is it in use?" });
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
@@ -477,14 +458,12 @@ ipcMain.handle("discord-login", async () => {
             if (!resolved) {
                 resolved = true;
                 server.close();
-                resolve({
-                    success: false,
-                    error: "Discord login timed out after 2 minutes"
-                });
+                resolve({ success: false, error: "Discord login timed out after 2 minutes" });
             }
         }, 12e4);
     });
 });
+
 ipcMain.handle("msmc-login", async () => {
     try {
         const loginUrl = authManager.createLink();
