@@ -427,8 +427,8 @@ ipcMain.handle("discord-login", async () => {
                 if (!accessToken) {
                     server.close();
                     const errMsg = discordError
-                        ? `Discord verweigerte den Zugriff: ${discordError}. Stelle sicher, dass du im Browser auf "Authorize" klickst.`
-                        : "No access token returned. Bitte versuche es erneut.";
+                        ? `Discord denied access: ${discordError}. Ensure you click "Authorize" in the browser.`
+                        : "No access token returned. Try again.";
                     resolve({ success: false, error: errMsg });
                     return;
                 }
@@ -463,8 +463,9 @@ ipcMain.handle("discord-login", async () => {
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
-            // relationships.read requires Discord privileged approval — fetch friends via rpc.getRelationships() instead
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify%20rpc`;
+            // Only "identify" scope — rpc/relationships.read require Discord Developer Portal approval
+            // Rich Presence works via rpc.login() on startup (local IPC, no OAuth scope needed)
+            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify`;
             shell.openExternal(authUrl);
         });
         setTimeout(() => {
@@ -1869,7 +1870,7 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
         console.log("[LAUNCH] Calling MCLC launcher.launch()...");
         mainWindow.webContents.send("launch-status", "Starting...");
         await launcher.launch(opts);
-        
+
         // Clean up installer logs
         try {
             const fs = require("fs").promises;
@@ -1878,11 +1879,11 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 const files = await fs.readdir(dir).catch(() => []);
                 for (const file of files) {
                     if (file.toLowerCase().includes("installer.log") || file === "installer.log") {
-                        await fs.rm(require("path").join(dir, file), { force: true }).catch(() => {});
+                        await fs.rm(require("path").join(dir, file), { force: true }).catch(() => { });
                     }
                 }
             }
-        } catch(e) { console.error("[CLEANUP] Failed to clean installer logs", e); }
+        } catch (e) { console.error("[CLEANUP] Failed to clean installer logs", e); }
 
         setRunningState();
         console.log("[LAUNCH] Game launched successfully");
@@ -2373,7 +2374,7 @@ async function processModpackZip(zipPath, instanceName, sender) {
                         const quiltComp = mmcPack.components.find(c => c.uid === "org.quiltmc.quilt-loader");
                         if (quiltComp) { loader = "quilt"; loaderVersion = quiltComp.version; }
                     }
-                } catch(e) {}
+                } catch (e) { }
             }
 
             const prismDirs = ["minecraft", ".minecraft"];
