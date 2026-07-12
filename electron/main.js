@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, safeStorag
 const path = require("path");
 const { autoUpdater } = require("electron-updater");
 
+// Discord-rpc needs fetch but older node/electron main processes might not have it globally
+if (!global.fetch) {
+    global.fetch = require("node-fetch");
+}
+
 // ─── Auto-Updater Setup ─────────────────────────────────────────────────────
 autoUpdater.autoDownload = false; // We ask the user before downloading
 autoUpdater.autoInstallOnAppQuit = true;
@@ -222,6 +227,17 @@ function createWindow() {
 if (!app.requestSingleInstanceLock()) {
     app.quit();
     process.exit(0);
+}
+
+// Register as default handler for Discord Join requests and custom URI scheme
+if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient("discord-1523332306096357487", process.execPath, [path.resolve(process.argv[1])]);
+        app.setAsDefaultProtocolClient("crystalline", process.execPath, [path.resolve(process.argv[1])]);
+    }
+} else {
+    app.setAsDefaultProtocolClient("discord-1523332306096357487");
+    app.setAsDefaultProtocolClient("crystalline");
 }
 function handleProtocolURL(args) {
     const urlArg = args.find((arg) => arg.startsWith("discord-1523332306096357487://"));
