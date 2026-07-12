@@ -408,7 +408,8 @@
             <button class="instance-tab-btn" data-tab="tab-shaderpacks"
               style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Shaderpacks</button>
           </div>
-          <span id="detail-stats" style="display: none; color: var(--text-dim); font-family: monospace; font-size: 12px; margin-right: 8px;"></span>
+          <span id="detail-stats"
+            style="display: none; color: var(--text-dim); font-family: monospace; font-size: 12px; margin-right: 8px;"></span>
         </div>
 
         <!-- Download Progress (Global inside Instance Details) -->
@@ -431,11 +432,15 @@
         </div>
 
         <!-- Tab Contents -->
-        <div id="tab-logs" class="instance-tab-content active" style="flex:1; display:flex; flex-direction:column; gap: 8px;">
+        <div id="tab-logs" class="instance-tab-content active"
+          style="flex:1; display:flex; flex-direction:column; gap: 8px;">
           <div class="log-control-bar" style="display:flex; gap:8px; align-items:center;">
-            <input type="text" id="search-logs" class="content-search" placeholder="Search logs..." style="flex:1; margin:0;">
-            <button id="btn-copy-logs" class="btn-secondary" style="padding: 6px 12px; height: 32px; font-size: 11px;">Copy Logs</button>
-            <button id="btn-clear-logs" class="btn-danger" style="padding: 6px 12px; height: 32px; font-size: 11px;">Clear</button>
+            <input type="text" id="search-logs" class="content-search" placeholder="Search logs..."
+              style="flex:1; margin:0;">
+            <button id="btn-copy-logs" class="btn-secondary"
+              style="padding: 6px 12px; height: 32px; font-size: 11px;">Copy Logs</button>
+            <button id="btn-clear-logs" class="btn-danger"
+              style="padding: 6px 12px; height: 32px; font-size: 11px;">Clear</button>
           </div>
           <div id="instance-logs" class="glass-panel"
             style="flex:1; overflow-y:auto; min-height:0; font-family: 'Consolas', monospace; font-size:12px; color:var(--text-dim); padding:15px; white-space:pre-wrap; display:flex; flex-direction:column; gap:4px; border: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.5);">
@@ -598,7 +603,8 @@
               <div class="form-group">
                 <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
                   <span>Max RAM Allocation</span>
-                  <button id="btn-recommend-ram" class="btn-secondary" style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Empfohlen</button>
+                  <button id="btn-recommend-ram" class="btn-secondary"
+                    style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Empfohlen</button>
                 </label>
                 <div class="input-wrapper">
                   <input type="text" id="setting-ram" value="4G" class="form-input" placeholder="e.g. 4G, 8G">
@@ -893,7 +899,7 @@
               <h3 class="settings-section-title">About</h3>
               <div class="about-row">
                 <span class="about-label">Launcher Version</span>
-                <span class="about-value">1.1.0</span>
+                <span class="about-value">1.0.1</span>
               </div>
               <div class="about-row">
                 <span class="about-label">Platform</span>
@@ -901,7 +907,8 @@
               </div>
               <div class="about-row">
                 <span class="about-label">Source Code</span>
-                <span class="about-value"><a href="https://github.com/Minenblock/Crystalline-Launcher" target="_blank" style="color: var(--primary); text-decoration: none;">https://github.com/Minenblock/Crystalline-Launcher</a></span>
+                <span class="about-value"><a href="https://github.com/Minenblock/Crystalline-Launcher" target="_blank"
+                    style="color: var(--primary); text-decoration: none;">https://github.com/Minenblock/Crystalline-Launcher</a></span>
               </div>
             </div>
           </div>
