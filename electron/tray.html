@@ -1,18 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tray Menu</title>
-  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
   <style>
-    *, *::before, *::after {
+    *,
+    *::before,
+    *::after {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
 
-    html, body {
+    html,
+    body {
       background: #0c0c10;
       overflow: hidden;
       width: 100%;
@@ -23,7 +28,7 @@
     .tray-menu {
       width: 100%;
       height: 100%;
-      background: #0c0c10;
+      background: radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.15) 0%, transparent 60%), #0c0c10;
       border: 1px solid rgba(255, 255, 255, 0.08);
       display: flex;
       flex-direction: column;
@@ -88,6 +93,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="tray-menu">
     <div class="menu-header">
@@ -98,6 +104,10 @@
     <div class="menu-item" id="btn-open">
       <span class="menu-icon">◱</span>
       <span>Open Launcher</span>
+    </div>
+    <div class="menu-item" id="btn-party">
+      <span class="menu-icon">⚑</span>
+      <span>Party</span>
     </div>
     <div class="menu-item" id="btn-settings">
       <span class="menu-icon">⚙</span>
@@ -114,6 +124,10 @@
       window.electronAPI.showMainWindow();
     });
 
+    document.getElementById('btn-party').addEventListener('click', () => {
+      window.electronAPI.showFriends();
+    });
+
     document.getElementById('btn-settings').addEventListener('click', () => {
       window.electronAPI.showSettings();
     });
@@ -123,4 +137,5 @@
     });
   </script>
 </body>
+
 </html>

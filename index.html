@@ -35,8 +35,8 @@
           <span>Instances</span>
         </a>
         <a id="nav-friends" class="nav-item" href="#">
-          <span class="nav-icon">☻</span>
-          <span>Friends</span>
+          <span class="nav-icon">⚑</span>
+          <span>Party</span>
         </a>
         <a id="nav-skins" class="nav-item" href="#">
           <span class="nav-icon">▨</span>
@@ -45,6 +45,10 @@
         <a id="nav-storage" class="nav-item" href="#">
           <span class="nav-icon">◫</span>
           <span>Storage</span>
+        </a>
+        <a id="nav-notifications" class="nav-item" href="#">
+          <span class="nav-icon">⚠</span>
+          <span>Alerts</span>
         </a>
         <a id="nav-settings" class="nav-item" href="#">
           <span class="nav-icon">⚙</span>
@@ -81,8 +85,8 @@
       <div id="view-friends" class="view-section">
         <div class="view-header">
           <div>
-            <h1 class="view-title">Friends</h1>
-            <p class="view-subtitle">See who's playing Crystalline right now</p>
+            <h1 class="view-title">Party</h1>
+            <p class="view-subtitle">Manage your party and see who's online</p>
           </div>
           <button id="refresh-friends-btn" class="btn-secondary">↻ Refresh</button>
         </div>
@@ -98,8 +102,8 @@
         </div>
 
         <div id="party-panel" class="glass-panel"
-          style="padding: 16px; margin-bottom: 20px; border-left: 4px solid #a855f7; display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          style="padding: 24px; margin-bottom: 20px; border-left: 4px solid #a855f7; display: none; flex-direction: column; gap: 20px; flex: 1; min-height: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -108,59 +112,64 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
               </svg>
-              <h3 style="margin: 0; font-size: 15px; color: var(--text);">My Party</h3>
+              <h3 style="margin: 0; font-size: 16px; color: var(--text);">My Party</h3>
             </div>
             <button id="btn-leave-party" class="btn-secondary"
               style="padding: 6px 12px; font-size: 12px; border-color: rgba(255, 50, 50, 0.3); color: var(--error);">Leave
               Party</button>
           </div>
-          <div id="party-members" style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
-            <!-- Party members injected here -->
-          </div>
-          <!-- Party Chat -->
-          <div id="party-chat-box" style="border-top: 1px solid rgba(168,85,247,0.2); padding-top: 12px;">
-            <div id="party-chat-log" style="
-              height: 140px;
-              overflow-y: auto;
-              display: flex;
-              flex-direction: column;
-              gap: 6px;
-              margin-bottom: 10px;
-              padding-right: 4px;
-            ">
-              <span style="color:var(--text-dim); font-size:12px; align-self:center;">No messages yet. Say hi! 👋</span>
+          <div
+            style="display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: stretch; flex: 1; min-height: 0;">
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <h4
+                style="margin:0; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">
+                Members</h4>
+              <div id="party-members" style="display: flex; flex-direction: column; gap: 8px;">
+                <!-- Party members injected here -->
+              </div>
             </div>
-            <div style="display:flex; gap:8px;">
-              <input type="text" id="party-chat-input" class="content-search" placeholder="Send a message..."
-                style="flex:1;" maxlength="280">
-              <button id="party-chat-send" style="
-                background: linear-gradient(135deg, #a855f7, #d946ef);
-                border: none;
-                border-radius: var(--r);
-                color: #000;
-                font-weight: 700;
-                font-family: var(--font-display);
-                font-size: 13px;
-                padding: 8px 16px;
-                cursor: pointer;
-                transition: opacity 0.2s;
-              ">Send</button>
+            <!-- Party Chat -->
+            <div id="party-chat-box"
+              style="display: flex; flex-direction: column; background: rgba(0,0,0,0.25); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; min-height: 250px;">
+              <div
+                style="background: rgba(255,255,255,0.02); padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 8px;">
+                <span style="color: #a855f7;">#</span> Party Chat
+              </div>
+              <div id="party-chat-log" style="
+                flex: 1;
+                padding: 16px;
+                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+              ">
+                <span style="color:var(--text-dim); font-size:12px; align-self:center; margin: auto;">No messages yet.
+                  Say hi! 👋</span>
+              </div>
+              <div
+                style="display:flex; gap:8px; padding: 12px; background: rgba(0,0,0,0.4); border-top: 1px solid rgba(255,255,255,0.05);">
+                <input type="text" id="party-chat-input" class="content-search" placeholder="Message the party..."
+                  style="flex:1; background: rgba(255,255,255,0.05); border: none;" maxlength="280">
+                <button id="party-chat-send" style="
+                  background: linear-gradient(135deg, #a855f7, #d946ef);
+                  border: none;
+                  border-radius: var(--r-sm);
+                  color: #000;
+                  font-weight: 700;
+                  font-family: var(--font-display);
+                  font-size: 13px;
+                  padding: 8px 16px;
+                  cursor: pointer;
+                  transition: opacity 0.2s;
+                ">Send</button>
+              </div>
             </div>
           </div>
         </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h2 style="font-size: 16px; color: var(--text); margin: 0;">Online Friends</h2>
+        <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px;">
           <button id="btn-create-party" class="btn-secondary"
-            style="padding: 6px 12px; font-size: 12px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">+
+            style="padding: 10px 20px; font-size: 14px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">+
             Create Party</button>
-        </div>
-
-        <div id="friends-grid" class="friends-grid">
-          <div class="empty-state">
-            <span style="font-size:32px; margin-bottom:16px; display:block;">☹</span>
-            No friends are currently playing Crystalline.
-          </div>
         </div>
       </div>
 
@@ -384,19 +393,22 @@
 
         <!-- Tabs Header -->
         <div class="instance-tabs-header"
-          style="display:flex; gap:16px; margin-bottom:16px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-          <button class="instance-tab-btn active" data-tab="tab-logs"
-            style="background:none; border:none; color:var(--text); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Console
-            Logs</button>
-          <button class="instance-tab-btn" data-tab="tab-worlds"
-            style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Worlds</button>
-          <button class="instance-tab-btn" data-tab="tab-mods"
-            style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Mods</button>
-          <button class="instance-tab-btn" data-tab="tab-resourcepacks"
-            style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Resource
-            Packs</button>
-          <button class="instance-tab-btn" data-tab="tab-shaderpacks"
-            style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Shaderpacks</button>
+          style="display:flex; justify-content: space-between; align-items: center; margin-bottom:16px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+          <div style="display:flex; gap:16px;">
+            <button class="instance-tab-btn active" data-tab="tab-logs"
+              style="background:none; border:none; color:var(--text); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Console
+              Logs</button>
+            <button class="instance-tab-btn" data-tab="tab-worlds"
+              style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Worlds</button>
+            <button class="instance-tab-btn" data-tab="tab-mods"
+              style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Mods</button>
+            <button class="instance-tab-btn" data-tab="tab-resourcepacks"
+              style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Resource
+              Packs</button>
+            <button class="instance-tab-btn" data-tab="tab-shaderpacks"
+              style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; padding:8px 16px; border-radius:4px; transition: background 0.2s;">Shaderpacks</button>
+          </div>
+          <span id="detail-stats" style="display: none; color: var(--text-dim); font-family: monospace; font-size: 12px; margin-right: 8px;"></span>
         </div>
 
         <!-- Download Progress (Global inside Instance Details) -->
@@ -419,7 +431,12 @@
         </div>
 
         <!-- Tab Contents -->
-        <div id="tab-logs" class="instance-tab-content active" style="flex:1; display:flex; flex-direction:column;">
+        <div id="tab-logs" class="instance-tab-content active" style="flex:1; display:flex; flex-direction:column; gap: 8px;">
+          <div class="log-control-bar" style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="search-logs" class="content-search" placeholder="Search logs..." style="flex:1; margin:0;">
+            <button id="btn-copy-logs" class="btn-secondary" style="padding: 6px 12px; height: 32px; font-size: 11px;">Copy Logs</button>
+            <button id="btn-clear-logs" class="btn-danger" style="padding: 6px 12px; height: 32px; font-size: 11px;">Clear</button>
+          </div>
           <div id="instance-logs" class="glass-panel"
             style="flex:1; overflow-y:auto; min-height:0; font-family: 'Consolas', monospace; font-size:12px; color:var(--text-dim); padding:15px; white-space:pre-wrap; display:flex; flex-direction:column; gap:4px; border: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.5);">
             <!-- Logs go here -->
@@ -501,6 +518,30 @@
         </div>
       </div>
 
+      <!-- ALERTS VIEW -->
+      <div id="view-notifications" class="view-section">
+        <div class="view-header" style="justify-content: flex-start; gap: 20px;">
+          <div style="flex: 1;">
+            <h1 class="view-title">Alerts & Logs</h1>
+            <p class="view-subtitle">Recent launcher errors and game crash reports</p>
+          </div>
+          <div style="display:flex; gap: 10px;">
+            <button id="btn-clear-notifications" class="btn-secondary"
+              style="color: var(--error); border-color: rgba(255, 50, 50, 0.3);">
+              Clear All
+            </button>
+          </div>
+        </div>
+        <div id="notifications-list"
+          style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow-y: auto;">
+          <div class="empty-state">
+            <span style="font-size: 32px; color: var(--text-dim);">✓</span>
+            <h3 style="margin-top: 16px;">All Good!</h3>
+            <p style="color: var(--text-dim); margin-top: 8px;">No errors or alerts have been recorded yet.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- SETTINGS VIEW -->
       <div id="view-settings" class="view-section">
         <div class="view-header">
@@ -555,7 +596,10 @@
             <div class="settings-card glass-panel" style="grid-column: 1 / -1;">
               <h3 class="settings-section-title">Java &amp; Memory</h3>
               <div class="form-group">
-                <label class="form-label">Max RAM Allocation</label>
+                <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>Max RAM Allocation</span>
+                  <button id="btn-recommend-ram" class="btn-secondary" style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Empfohlen</button>
+                </label>
                 <div class="input-wrapper">
                   <input type="text" id="setting-ram" value="4G" class="form-input" placeholder="e.g. 4G, 8G">
                   <span class="input-hint">GB</span>
@@ -571,8 +615,8 @@
               <div class="form-group"
                 style="display:flex; align-items:center; justify-content:space-between; margin-top:10px; background:var(--surface-hover); padding:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
                 <div>
-                  <label class="form-label" style="margin-bottom:4px;">Allow Friends to Join via Discord</label>
-                  <p class="form-hint" style="margin:0;">If enabled, your Discord friends can click "Join" on your
+                  <label class="form-label" style="margin-bottom:4px;">Allow Players to Join via Discord</label>
+                  <p class="form-hint" style="margin:0;">If enabled, other Discord users can click "Join" on your
                     profile
                     when you host a server.</p>
                 </div>
@@ -824,6 +868,20 @@
                   </label>
                 </div>
               </div>
+
+              <div class="form-group"
+                style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; background:var(--surface-hover); padding:16px; border-radius:var(--r-lg); border:1px solid rgba(255,255,255,0.05);">
+                <div>
+                  <label class="form-label" style="margin-bottom:4px;">Party Chat Notifications</label>
+                  <p class="form-hint" style="margin:0;">Play a sound when you receive a message in the party chat.</p>
+                </div>
+                <label class="switch"
+                  style="position:relative; display:inline-block; width:40px; height:20px; flex-shrink:0;">
+                  <input type="checkbox" id="setting-party-sounds" checked style="opacity:0; width:0; height:0;">
+                  <span class="slider round"
+                    style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -835,15 +893,15 @@
               <h3 class="settings-section-title">About</h3>
               <div class="about-row">
                 <span class="about-label">Launcher Version</span>
-                <span class="about-value">1.1.1</span>
-              </div>
-              <div class="about-row">
-                <span class="about-label">Electron</span>
-                <span class="about-value" id="about-electron-version">—</span>
+                <span class="about-value">1.1.0</span>
               </div>
               <div class="about-row">
                 <span class="about-label">Platform</span>
                 <span class="about-value">Windows</span>
+              </div>
+              <div class="about-row">
+                <span class="about-label">Source Code</span>
+                <span class="about-value"><a href="https://github.com/Minenblock/Crystalline-Launcher" target="_blank" style="color: var(--primary); text-decoration: none;">https://github.com/Minenblock/Crystalline-Launcher</a></span>
               </div>
             </div>
           </div>

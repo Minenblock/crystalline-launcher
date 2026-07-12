@@ -7,6 +7,13 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.js',
+        vite: {
+          build: {
+            rollupOptions: {
+              external: ['discord-rpc', 'node-fetch']
+            }
+          }
+        }
       },
       {
         entry: 'electron/preload.js',

@@ -2,10 +2,10 @@ import './style.css';
 import { SkinViewer, IdleAnimation } from 'skinview3d';
 
 window.addEventListener('error', (e) => {
-  Swal.fire({ title: 'Frontend Error', text: e.message, icon: 'error' });
+  window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
 });
 window.addEventListener('unhandledrejection', (e) => {
-  Swal.fire({ title: 'Frontend Promise Error', text: e.reason?.message || e.reason, icon: 'error' });
+  window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
 });
 
 // ─── Element refs ─────────────────────────────────────────────────────────
@@ -30,10 +30,13 @@ const viewSettings = document.getElementById('view-settings');
 const viewFriends = document.getElementById('view-friends');
 const viewSkins = document.getElementById('view-skins');
 const viewStorage = document.getElementById('view-storage');
+const navNotifications = document.getElementById('nav-notifications');
+const viewNotifications = document.getElementById('view-notifications');
 const viewInstanceDetails = document.getElementById('view-instance-details');
 const btnBackInstances = document.getElementById('btn-back-instances');
 const detailTitle = document.getElementById('detail-title');
 const detailSubtitle = document.getElementById('detail-subtitle');
+const detailStats = document.getElementById('detail-stats');
 const detailPlayBtn = document.getElementById('detail-play-btn');
 const detailPlayLabel = document.getElementById('detail-play-label');
 const detailFolderBtn = document.getElementById('detail-folder-btn');
@@ -50,22 +53,40 @@ const listShaderpacks = document.getElementById('list-shaderpacks');
 const ramInput = document.getElementById('setting-ram');
 const javaInput = document.getElementById('setting-java');
 const allowJoinToggle = document.getElementById('setting-allow-join');
+const partySoundsToggle = document.getElementById('setting-party-sounds');
 const saveSettingsBtn = document.getElementById('save-settings-btn');
 const newInstanceBtn = document.getElementById('new-instance-btn');
 const dropZone = document.getElementById('drop-zone');
 
 let currentInstanceId = null;
+let notificationHistory = [];
 
 // ─── Navigation ─────────────────────────────────────────────────
+function updatePartyStatus(statusText, serverIp, version, loader, modpackSegment) {
+  if (typeof currentDiscordUser !== "undefined" && currentDiscordUser && currentDiscordUser.id) {
+    if (window.electronAPI && window.electronAPI.updatePartyStatus) {
+      window.electronAPI.updatePartyStatus(statusText, currentDiscordUser.id, serverIp, version, loader, modpackSegment);
+    }
+  }
+}
+
 function switchTab(activeNav, activeView) {
-  [navDashboard, navInstances, navSettings, navFriends, navSkins, navStorage].forEach(n => { if (n) n.classList.remove('active'); });
-  [viewDashboard, viewInstances, viewSettings, viewFriends, viewSkins, viewInstanceDetails, viewStorage].forEach(v => {
+  [navDashboard, navInstances, navSettings, navFriends, navSkins, navStorage, navNotifications].forEach(n => { if (n) n.classList.remove('active'); });
+  [viewDashboard, viewInstances, viewSettings, viewFriends, viewSkins, viewInstanceDetails, viewStorage, viewNotifications].forEach(v => {
     if (v) { v.classList.remove('active'); v.style.display = 'none'; }
   });
   if (activeNav) activeNav.classList.add('active');
   if (activeView) {
     activeView.style.display = 'block';
     requestAnimationFrame(() => activeView.classList.add('active'));
+
+    let statusText = "In Launcher";
+
+    if (window.updateMyStatus) {
+      window.updateMyStatus(statusText);
+    } else {
+      updatePartyStatus(statusText);
+    }
   }
 }
 
@@ -79,6 +100,7 @@ if (navSkins) navSkins.addEventListener('click', (e) => {
   if (!window.skinViewerInitialized) initSkinViewer();
 });
 if (navStorage) navStorage.addEventListener('click', (e) => { e.preventDefault(); switchTab(navStorage, viewStorage); loadStorageVersions(); });
+if (navNotifications) navNotifications.addEventListener('click', (e) => { e.preventDefault(); switchTab(navNotifications, viewNotifications); });
 if (btnBackInstances) {
   btnBackInstances.addEventListener('click', () => { switchTab(navInstances, viewInstances); currentInstanceId = null; });
 }
@@ -86,8 +108,186 @@ if (btnBackInstances) {
 if (window.electronAPI && window.electronAPI.onNavigateTo) {
   window.electronAPI.onNavigateTo((tab) => {
     if (tab === 'settings') switchTab(navSettings, viewSettings);
+    if (tab === 'friends') switchTab(navFriends, viewFriends);
   });
 }
+
+// ─── Toast Notifications ─────────────────────────────────────────
+window.showToast = function (options) {
+  return new Promise((resolve) => {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const { id, title, message, type = 'info', duration = 5000, html, confirmButtonText, cancelButtonText, errorDetails } = options;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    if (id) toast.id = id;
+
+    let contentHtml = `
+      <div class="toast-content">
+        <div class="toast-header">
+          <span class="toast-title">${title}</span>
+        </div>
+        <div class="toast-message">${html ? html : message}</div>
+        ${errorDetails ? `<div style="background:rgba(0,0,0,0.4); border-left:3px solid var(--error); padding:8px; margin-top:8px; font-family:var(--font-mono, monospace); font-size:11px; color:var(--text-dim); overflow-x:auto; border-radius:4px;">${errorDetails}</div>` : ''}
+        <div class="toast-actions"></div>
+      </div>
+      <div class="toast-progress-bar"></div>
+    `;
+    toast.innerHTML = contentHtml;
+
+    const actionsDiv = toast.querySelector('.toast-actions');
+    const progressBar = toast.querySelector('.toast-progress-bar');
+
+    if (type === 'error') {
+      toast.classList.add('error-toast');
+      progressBar.style.background = 'var(--error)';
+      toast.querySelector('.toast-title').style.color = 'var(--error)';
+      
+      // Save to notification history
+      notificationHistory.unshift({
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        title,
+        message: html ? html : message,
+        errorDetails: errorDetails || ''
+      });
+      if (notificationHistory.length > 50) notificationHistory.pop();
+      if (typeof renderNotifications === 'function') renderNotifications();
+    }
+
+    let closeTimeout;
+
+    const removeToast = (result) => {
+      clearTimeout(closeTimeout);
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 400);
+      resolve(result);
+    };
+
+    if (type === 'error') {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'toast-btn primary';
+      copyBtn.innerText = 'Copy';
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(errorDetails || message || '');
+        copyBtn.innerText = 'Copied!';
+        setTimeout(() => copyBtn.innerText = 'Copy', 2000);
+      };
+      actionsDiv.appendChild(copyBtn);
+    } else if (type === 'invite') {
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'toast-btn primary';
+      confirmBtn.innerText = confirmButtonText || 'Accept';
+      confirmBtn.onclick = () => removeToast({ isConfirmed: true });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'toast-btn danger';
+      cancelBtn.innerText = cancelButtonText || 'Deny';
+      cancelBtn.onclick = () => removeToast({ isConfirmed: false, isDismissed: true });
+
+      actionsDiv.appendChild(confirmBtn);
+      actionsDiv.appendChild(cancelBtn);
+    } else if (type === 'confirm') {
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'toast-btn primary';
+      confirmBtn.innerText = confirmButtonText || 'Yes';
+      confirmBtn.onclick = () => removeToast({ isConfirmed: true });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'toast-btn';
+      cancelBtn.innerText = cancelButtonText || 'Cancel';
+      cancelBtn.onclick = () => removeToast({ isConfirmed: false, isDismissed: true });
+
+      actionsDiv.appendChild(confirmBtn);
+      actionsDiv.appendChild(cancelBtn);
+    }
+
+    if (type !== 'invite' && type !== 'confirm' && type !== 'launch') {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'toast-btn';
+      closeBtn.innerText = 'Close';
+      closeBtn.onclick = () => removeToast({ isConfirmed: false, isDismissed: true });
+      actionsDiv.appendChild(closeBtn);
+    }
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.add('show');
+    });
+
+    const hasTimeout = type !== 'invite' && type !== 'confirm' && type !== 'launch';
+    if (hasTimeout) {
+      progressBar.style.transition = `transform ${duration}ms linear`;
+      requestAnimationFrame(() => {
+        progressBar.style.transform = 'scaleX(0)';
+      });
+
+      closeTimeout = setTimeout(() => {
+        removeToast({ isDismissed: true });
+      }, duration);
+    } else {
+      progressBar.style.display = 'none';
+    }
+  });
+};
+
+function renderNotifications() {
+  const listEl = document.getElementById('notifications-list');
+  if (!listEl) return;
+  
+  if (notificationHistory.length === 0) {
+    listEl.innerHTML = `
+      <div class="empty-state">
+        <span style="font-size: 32px; color: var(--text-dim);">✓</span>
+        <h3 style="margin-top: 16px;">All Good!</h3>
+        <p style="color: var(--text-dim); margin-top: 8px;">No errors or alerts have been recorded yet.</p>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = '';
+  notificationHistory.forEach(notif => {
+    const card = document.createElement('div');
+    card.className = 'glass-panel';
+    card.style.padding = '16px';
+    card.style.borderLeft = '4px solid var(--error)';
+    card.style.position = 'relative';
+    
+    let htmlContent = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <h4 style="margin: 0; font-size: 14px; color: var(--error);">${notif.title}</h4>
+        <span style="font-size: 11px; color: var(--text-dim);">${notif.time}</span>
+      </div>
+      <div style="font-size: 13px; color: var(--text); line-height: 1.4; word-break: break-word;">
+        ${notif.message}
+      </div>
+    `;
+    
+    if (notif.errorDetails) {
+      htmlContent += `
+        <div style="background: rgba(0,0,0,0.4); border-radius: var(--r-sm); border: 1px solid rgba(255,255,255,0.05); padding: 10px; margin-top: 12px; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-dim); overflow-x: auto; max-height: 150px;">
+          ${notif.errorDetails}
+        </div>
+      `;
+    }
+    
+    card.innerHTML = htmlContent;
+    listEl.appendChild(card);
+  });
+}
+
+document.getElementById('btn-clear-notifications')?.addEventListener('click', () => {
+  notificationHistory = [];
+  renderNotifications();
+});
 
 // ─── Login & Auth & Updates ───────────────────────────────────────
 let isLoggedIn = false;
@@ -151,7 +351,7 @@ loginBtn.addEventListener('click', async () => {
     } else {
       updateAuthUI(false);
       if (result.error !== 'Login canceled by user') {
-        Swal.fire({ title: 'Login Error', text: result.error, icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       }
     }
   }
@@ -186,7 +386,6 @@ async function launchGame(instanceId = null) {
 
   if (targetId === 'default') {
     playLabel.innerText = 'Starting...';
-    launchStatus.innerText = 'Preparing to launch...';
     const dbProg = document.getElementById('dashboard-download-progress');
     if (dbProg) {
       dbProg.style.display = 'none';
@@ -200,16 +399,14 @@ async function launchGame(instanceId = null) {
 
   if (targetId && currentInstanceId === targetId) {
     if (detailPlayLabel) detailPlayLabel.innerText = 'Starting...';
-    if (detailStatus) detailStatus.innerText = 'Preparing to launch...';
   }
 
   try {
+    updatePartyStatus("Starting Minecraft...");
     // Check if we need to auto-install or update the official modpack for the default instance
     if (targetId === 'default') {
       const updateInfo = await window.electronAPI.checkModpackUpdate();
       if (updateInfo.success && (!updateInfo.isInstalled || updateInfo.updateAvailable)) {
-        launchStatus.style.color = 'var(--text-dim)'; // reset color
-        launchStatus.innerText = updateInfo.updateAvailable ? 'Updating Modpack...' : 'Initializing Download...';
         playLabel.innerText = 'Downloading...';
         if (detailPlayLabel) detailPlayLabel.innerText = 'Downloading...';
 
@@ -226,15 +423,56 @@ async function launchGame(instanceId = null) {
       }
     }
 
+    // Check for duplicate mods before launch
+    try {
+      const duplicates = await window.electronAPI.scanInstanceMods(targetId);
+      if (duplicates && duplicates.length > 0) {
+        const totalDupFiles = duplicates.reduce((acc, group) => acc + (group.files.length - 1), 0);
+        let listHtml = '<div style="text-align:left; max-height:150px; overflow-y:auto; background:rgba(0,0,0,0.2); padding:10px; border-radius:6px; font-size:12px; margin-top:8px;">';
+        const filesToDelete = [];
+        for (const group of duplicates) {
+          listHtml += `<strong style="color:var(--accent);">${group.baseName}</strong>:<ul>`;
+          group.files.forEach((file, index) => {
+            if (index === 0) {
+              listHtml += `<li style="color:var(--success);">Keep: ${file.name}</li>`;
+            } else {
+              listHtml += `<li style="color:var(--error); text-decoration:line-through;">Remove: ${file.name}</li>`;
+              filesToDelete.push(file.path);
+            }
+          });
+          listHtml += '</ul>';
+        }
+        listHtml += '</div>';
+
+        const { isConfirmed } = await window.showToast({
+          title: 'Duplicate Mods Found!',
+          message: `We found ${totalDupFiles} older duplicate mod file(s). Minecraft will likely crash if we don't clean them up. Would you like to automatically delete them?`,
+          html: listHtml,
+          type: 'confirm',
+          confirmButtonText: 'Clean up & Launch',
+          cancelButtonText: 'Launch Anyway'
+        });
+
+        if (isConfirmed) {
+          const delRes = await window.electronAPI.deleteModFiles(filesToDelete);
+          if (delRes.success) {
+            window.showToast({ title: 'Success', message: 'Cleaned up duplicate mods successfully!', type: 'success', duration: 2500 });
+          } else {
+            window.showToast({ title: 'Warning', message: 'Failed to delete some files, launching anyway...', type: 'warning', duration: 3000 });
+          }
+        }
+      }
+    } catch (scanErr) {
+      console.error("Mod scan failed:", scanErr);
+    }
+
     const launchResult = await window.electronAPI.launch(targetId);
     isLaunching = false;
     launchingInstanceId = null;
     if (window.updateMyStatus) window.updateMyStatus();
+    updatePartyStatus("Playing Minecraft");
 
     if (launchResult && launchResult.success === false) {
-      launchStatus.style.color = 'var(--text-destructive)';
-      launchStatus.innerText = 'Launch Failed: ' + launchResult.error;
-
       document.querySelectorAll('.btn-play, .btn-play-sm').forEach(btn => {
         btn.disabled = false;
         btn.style.opacity = '1';
@@ -246,7 +484,6 @@ async function launchGame(instanceId = null) {
     // Keep play buttons disabled until the game closes
     if (targetId === 'default') {
       playLabel.innerText = 'Running';
-      launchStatus.innerText = 'Game is running';
       const dbProg = document.getElementById('dashboard-download-progress');
       if (dbProg) dbProg.style.display = 'none';
     }
@@ -302,17 +539,7 @@ if (detailFolderBtn) {
 if (detailDeleteBtn) {
   detailDeleteBtn.addEventListener('click', async () => {
     if (!currentInstanceId) return;
-    const { isConfirmed } = await Swal.fire({
-      title: 'Delete Instance?',
-      text: "This will move the instance and all its saves to your Recycle Bin. You can restore it from there if you change your mind.",
-      icon: 'warning',
-      showCancelButton: true,
-      background: 'var(--surface-hover)',
-      color: 'var(--text)',
-      confirmButtonColor: '#ff5555',
-      cancelButtonColor: 'rgba(255,255,255,0.1)',
-      confirmButtonText: 'Move to Trash'
-    });
+    const { isConfirmed } = await window.showToast({ title: 'Delete Instance?', message: 'Are you sure you want to delete this instance? This action cannot be undone.', type: 'confirm' });
 
     if (isConfirmed) {
       const res = await window.electronAPI.deleteInstance(currentInstanceId);
@@ -321,7 +548,7 @@ if (detailDeleteBtn) {
         switchTab(navInstances, viewInstances);
         loadInstances();
       } else {
-        Swal.fire({ title: 'Error', text: res.error, icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       }
     }
   });
@@ -332,7 +559,7 @@ let currentServerIp = null;
 let isPlayingNextbots = false;
 
 // ─── Log Streaming ──────────────────────────────────────────────
-const MAX_LOG_LINES = 150;
+const MAX_LOG_LINES = 1000;
 let logQueue = [];
 let logFlushTimer = null;
 
@@ -342,18 +569,49 @@ window.electronAPI.onMcLog((data) => {
     logFlushTimer = setTimeout(() => {
       if (!instanceLogs) { logQueue = []; logFlushTimer = null; return; }
 
-      // Append all queued lines at once
       const frag = document.createDocumentFragment();
+      const searchInput = document.getElementById('search-logs');
+      const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
       for (const line of logQueue) {
         const div = document.createElement('div');
-        div.innerText = line;
+        div.className = 'log-line';
+
+        // Escape HTML to prevent XSS
+        const safeLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // Parse timestamp [HH:MM:SS]
+        let formattedLine = safeLine;
+        const timeMatch = safeLine.match(/^(\[[0-9]{2}:[0-9]{2}:[0-9]{2}\])\s*(.*)$/);
+        if (timeMatch) {
+          formattedLine = `<span class="log-timestamp">${timeMatch[1]}</span>${timeMatch[2]}`;
+        }
+
+        // Detect log level
+        let levelClass = 'log-info';
+        if (line.toLowerCase().includes('[warn]') || line.toLowerCase().includes('[warning]')) {
+          levelClass = 'log-warn';
+        } else if (line.toLowerCase().includes('[error]') || line.toLowerCase().includes('[fatal]') || line.toLowerCase().includes('exception') || line.startsWith('\tat ')) {
+          levelClass = 'log-error';
+        }
+
+        div.classList.add(levelClass);
+        div.innerHTML = formattedLine;
+
+        // Apply active search filter
+        if (searchQuery !== '') {
+          if (!line.toLowerCase().includes(searchQuery)) {
+            div.style.display = 'none';
+          }
+        }
+
         frag.appendChild(div);
       }
       instanceLogs.appendChild(frag);
       logQueue = [];
       logFlushTimer = null;
 
-      // Trim to MAX_LOG_LINES (ring buffer – oldest lines go first)
+      // Trim to MAX_LOG_LINES
       while (instanceLogs.childNodes.length > MAX_LOG_LINES) {
         instanceLogs.removeChild(instanceLogs.firstChild);
       }
@@ -445,7 +703,7 @@ if (discordLoginBtn) {
         }
 
         const friendsGrid = document.getElementById('friends-grid');
-        if (friendsGrid) friendsGrid.innerHTML = '<div class="no-friends">Discord disconnected. Connect Discord to see friends.</div>';
+        if (friendsGrid) friendsGrid.innerHTML = '<div class="no-friends">Discord disconnected. Connect Discord to see players.</div>';
       }
     } else {
       discordLoginBtn.innerText = 'Linking...';
@@ -454,7 +712,7 @@ if (discordLoginBtn) {
         updateDiscordUI(res);
       } else {
         discordLoginBtn.innerText = 'Link';
-        Swal.fire('Discord Error', res.error, 'error');
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       }
     }
   });
@@ -481,9 +739,10 @@ function updateDiscordUI(res) {
       }
     }
 
-    window.updateMyStatus = () => {
+    window.updateMyStatus = (viewText) => {
       const myStatusEl = document.getElementById('my-discord-status');
       if (!myStatusEl) return;
+      const idleText = viewText || 'In Dashboard';
 
       if (runningInstanceId || currentServerIp) {
         myStatusEl.innerText = currentServerIp ? `On Server: ${currentServerIp}` : `In Instance: ${runningInstanceId}`;
@@ -502,12 +761,17 @@ function updateDiscordUI(res) {
                 loaderVersion: inst?.loaderVersion,
                 instanceId: inst?.id
               });
+              updatePartyStatus(`Playing Minecraft ${inst?.version || ''}`, currentServerIp, inst?.version, inst?.loader, 'official');
             });
           } else {
-            window.electronAPI.updateDiscordPresence({
-              details: 'Playing Crystalline',
-              state: `In Instance: ${runningInstanceId}`,
-              instanceId: runningInstanceId
+            window.electronAPI.getInstances().then(resInst => {
+              const inst = resInst.instances?.find(i => i.id === runningInstanceId);
+              window.electronAPI.updateDiscordPresence({
+                details: 'Playing Crystalline',
+                state: `In Instance: ${runningInstanceId}`,
+                instanceId: runningInstanceId
+              });
+              updatePartyStatus(`Playing Minecraft ${inst?.version || ''}`);
             });
           }
         }
@@ -515,8 +779,16 @@ function updateDiscordUI(res) {
         myStatusEl.innerText = 'Launching Game...';
         myStatusEl.style.color = 'var(--success)';
       } else {
-        myStatusEl.innerText = 'In Dashboard';
+        myStatusEl.innerText = idleText;
         myStatusEl.style.color = 'var(--text-dim)';
+        if (isDiscordLinked && window.electronAPI && window.electronAPI.updateDiscordPresence) {
+          window.electronAPI.updateDiscordPresence({
+            details: 'In Launcher',
+            state: idleText,
+            instance: false
+          });
+        }
+        updatePartyStatus(idleText);
       }
     };
     window.updateMyStatus();
@@ -610,8 +882,8 @@ function updateDiscordUI(res) {
             `;
           } else {
             actionsHtml = `
-              <div class="friend-actions">
-                <button class="btn-invite" style="width:100%; margin-top:8px; font-size:12px; padding:6px 0;" onclick="window.sendInvite('${f.user.id}', '${f.user.username.replace(/'/g, "\\'")}')">Send Invite</button>
+              <div class="friend-actions" style="display:flex; gap:8px;">
+                <button class="btn-secondary" style="flex:1; margin-top:8px; font-size:12px; padding:6px 0;" onclick="window.copyInviteLink()">Copy Link</button>
               </div>
             `;
           }
@@ -643,54 +915,23 @@ function updateDiscordUI(res) {
           finalHtml += inLauncher.map(f => renderFriendCard(f, true)).join('');
         }
         if (onlineOthers.length > 0) {
-          finalHtml += `<div style="grid-column: 1 / -1; font-size: 14px; font-weight: bold; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 16px;">Discord Friends (${onlineOthers.length})</div>`;
+          finalHtml += `<div style="grid-column: 1 / -1; font-size: 14px; font-weight: bold; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 16px;">Online Players (${onlineOthers.length})</div>`;
           finalHtml += onlineOthers.map(f => renderFriendCard(f, false)).join('');
         }
         if (friendsGrid) {
           friendsGrid.innerHTML = finalHtml;
-          document.querySelectorAll('.btn-invite-friend').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-              const uid = e.target.getAttribute('data-userid');
-              const originalText = e.target.innerText;
-              e.target.innerText = 'Inviting...';
-              e.target.disabled = true;
-              try {
-                const resp = await fetch('http://127.0.0.1:34322/api/invite', {
-                  method: 'POST',
-                  body: JSON.stringify({ userId: uid, host: 'ramazanfemboy.duckdns.org', port: 25568 })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                  e.target.innerText = 'Sent!';
-                } else {
-                  e.target.innerText = 'Error!';
-                  console.error(data.error);
-                }
-              } catch (err) {
-                e.target.innerText = 'Failed';
-                console.error(err);
-              }
-              setTimeout(() => {
-                e.target.innerText = originalText;
-                e.target.disabled = false;
-              }, 2000);
-            });
-          });
         }
       } else {
         if (friendsGrid) friendsGrid.innerHTML = `
           <div class="empty-state">
             <span style="font-size:32px; margin-bottom:16px; display:block;">💤</span>
-            No friends are currently playing Crystalline.
+            No players are currently playing Crystalline.
           </div>
         `;
       }
     } else {
       if (friendsGrid) friendsGrid.innerHTML = `
-        <div class="empty-state">
-          <span style="font-size:32px; margin-bottom:16px; display:block;">💤</span>
-          You have no Discord friends.
-        </div>
+        <div class="empty-state"></div>
       `;
     }
   } else {
@@ -704,55 +945,55 @@ function updateDiscordUI(res) {
     }
     if (friendsGrid) {
       friendsGrid.innerHTML = `
-        <div class="empty-state">
-          <span style="font-size:32px; margin-bottom:16px; display:block;">💤</span>
-          You have no Discord friends.
-        </div>
+        <div class="empty-state"></div>
       `;
     }
     if (res.error) {
-      Swal.fire({
-        title: 'Discord Error',
-        text: res.error,
-        icon: 'error',
-        background: 'var(--surface-hover)',
-        color: 'var(--text)'
-      });
+      window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
     }
   }
 }
 
 window.sendInvite = async (userId, username) => {
   if (!currentServerIp && !currentPartyState) {
-    Swal.fire({
-      title: 'Cannot send invite',
-      text: 'You must be connected to a server or be in a Party before you can invite friends.',
-      icon: 'info',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Info', message: 'Here is some information.', type: 'info' });
     return;
   }
   const res = await window.electronAPI.sendDiscordInvite(userId);
   if (res.success) {
     const destination = currentPartyState ? 'your Party' : currentServerIp;
-    Swal.fire({
-      title: 'Invite Sent! <span style="font-size:18px;">✨</span>',
-      text: `${username} received a Discord invite to join ${destination}.`,
-      icon: 'success',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)',
-      timer: 3000,
-      showConfirmButton: false
-    });
+    window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
   } else {
-    Swal.fire({
-      title: 'Invite Failed',
-      text: res.error || 'Could not send invite via Discord RPC.',
-      icon: 'error',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
+  }
+};
+
+window.copyInviteLink = async () => {
+  let secret = null;
+  if (typeof currentPartyState !== 'undefined' && currentPartyState && currentPartyState.groupId && currentPartyState.aesKey) {
+    secret = `group:${currentPartyState.groupId}:${currentPartyState.aesKey}`;
+  } else if (currentServerIp) {
+    const v = currentMcVersion || '1.21.1';
+    const l = currentLoader || 'neoforge';
+    const lv = currentLoaderVersion || '21.1.230';
+    let off = 'official';
+    if (typeof activeInstanceObj !== 'undefined' && activeInstanceObj && activeInstanceObj.type === 'custom_bb' && activeInstanceObj.bbKey) {
+      off = `bb:${activeInstanceObj.bbKey}`;
+    }
+    secret = `${currentServerIp}|${v}|${l}|${lv}|${off}`;
+  }
+
+  if (!secret) {
+    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
+    return;
+  }
+
+  const link = `crystalline://join/${secret}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
+  } catch (e) {
+    window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
   }
 };
 
@@ -767,12 +1008,7 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
         return;
       }
       if (!currentDiscordUser) {
-        Swal.fire({
-          title: 'Discord not linked',
-          text: 'You need to link your Discord account in the launcher before joining a party.',
-          icon: 'warning',
-          confirmButtonText: 'OK'
-        });
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
         return;
       }
       Swal.fire({
@@ -784,14 +1020,14 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
       try {
         const result = await window.electronAPI.joinParty(gParts[1], gParts[2], currentDiscordUser);
         if (result && result.error) {
-          Swal.fire('Party Error', result.error, 'error');
+          window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
           return;
         }
         Swal.close();
         // Switch to friends view to see the party
         navFriends.click();
       } catch (e) {
-        Swal.fire('Party Error', 'Could not connect to party: ' + e.message, 'error');
+        window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
       }
       return;
     }
@@ -830,7 +1066,7 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
               const playBtn = document.querySelector('.btn-play');
               if (playBtn) playBtn.click();
             } else {
-              Swal.fire('Error', res.error, 'error');
+              window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
             }
           }
         } else {
@@ -885,7 +1121,7 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
                 });
                 const dlRes = await window.electronAPI.downloadModpackUrls(urlsToDownload, instanceIdToLaunch);
                 if (!dlRes.success) {
-                  Swal.fire('Download Error', 'Failed to download all mods, game might crash: ' + dlRes.error, 'warning');
+                  window.showToast({ title: 'Download Error', message: 'Failed to download all mods, game might crash: ' + dlRes.error, type: 'error' });
                 }
               }
 
@@ -922,7 +1158,7 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
               });
             }
           } catch (e) {
-            Swal.fire('Error', 'Failed to fetch modpack data', 'error');
+            window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
             window.electronAPI.setPendingJoinServer(null);
           }
         } else {
@@ -981,19 +1217,13 @@ window.electronAPI.onDiscordJoinRequest(async (user) => {
     ? `<img src="${avatarUrl}" alt="Server Icon" style="width:48px;height:48px;border-radius:50%;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;">`
     : '';
   const tag = user.discriminator && user.discriminator !== '0' ? `#${user.discriminator}` : '';
-  const result = await Swal.fire({
+  const result = await window.showToast({
     title: 'Join Request',
     html: `${avatarHtml}<b>${user.username}${tag}</b> wants to join your party.`,
-    icon: null,
-    showCancelButton: true,
+    type: 'invite',
     confirmButtonText: '✓ Accept',
     cancelButtonText: '✕ Deny',
-    confirmButtonColor: '#22c55e',
-    cancelButtonColor: '#ef4444',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    timer: 30000,
-    timerProgressBar: true
+    duration: 30000
   });
   if (result.isConfirmed) {
     await window.electronAPI.approveJoinRequest(user.id);
@@ -1011,17 +1241,21 @@ const partyMembersDiv = document.getElementById('party-members');
 if (btnCreateParty) {
   btnCreateParty.addEventListener('click', async () => {
     if (!currentDiscordUser) {
-      Swal.fire('Error', 'You must link Discord to create a party.', 'error');
+      window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       return;
     }
-    const res = await window.electronAPI.createParty();
+    const res = await window.electronAPI.createParty({
+      id: currentDiscordUser.id,
+      name: currentDiscordUser.name,
+      avatar: currentDiscordUser.avatar
+    });
     if (res && res.groupId) {
       currentPartyState = res;
       // Tell discord RPC that we are hosting a party!
       if (window.electronAPI.updateDiscordPresence) {
         window.electronAPI.updateDiscordPresence({
           details: 'Hosting a Party',
-          state: 'Waiting for friends',
+          state: 'Waiting for players',
           partyId: res.groupId,
           partySize: 1,
           partyMax: 10,
@@ -1029,7 +1263,7 @@ if (btnCreateParty) {
         });
       }
       btnCreateParty.style.display = 'none';
-      partyPanel.style.display = 'block';
+      partyPanel.style.display = 'flex';
       renderPartyMembers([{ id: currentDiscordUser.id, name: currentDiscordUser.name, avatar: currentDiscordUser.avatar }]);
       // Re-render friends list so invite buttons appear
       if (isDiscordLinked) {
@@ -1043,7 +1277,7 @@ if (btnCreateParty) {
 
 if (btnLeaveParty) {
   btnLeaveParty.addEventListener('click', async () => {
-    await window.electronAPI.leaveParty();
+    await window.electronAPI.leaveParty(typeof currentDiscordUser !== 'undefined' && currentDiscordUser ? currentDiscordUser.id : null);
     currentPartyState = null;
     partyPanel.style.display = 'none';
     btnCreateParty.style.display = 'block';
@@ -1054,12 +1288,9 @@ if (btnLeaveParty) {
       });
     }
 
-    // Reset discord RPC to normal launcher state
-    if (window.electronAPI.updateDiscordPresence) {
-      window.electronAPI.updateDiscordPresence({
-        details: 'In Launcher',
-        state: 'Preparing for an adventure'
-      });
+    // Reset discord RPC based on current state
+    if (window.updateMyStatus) {
+      window.updateMyStatus();
     }
   });
 }
@@ -1068,7 +1299,7 @@ window.electronAPI.onPartyUpdate((state) => {
   currentPartyState = state;
   if (state && state.groupId) {
     btnCreateParty.style.display = 'none';
-    partyPanel.style.display = 'block';
+    partyPanel.style.display = 'flex';
     renderPartyMembers(state.members);
 
     if (window.electronAPI.updateDiscordPresence) {
@@ -1090,9 +1321,15 @@ window.electronAPI.onPartyUpdate((state) => {
 function renderPartyMembers(members) {
   if (!partyMembersDiv) return;
   partyMembersDiv.innerHTML = members.map(m => `
-    <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); padding:6px 12px; border-radius:100px;">
-      <img src="https://cdn.discordapp.com/avatars/${m.id}/${m.avatar}.png?size=32" alt="Party Member" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'" style="width:24px; height:24px; border-radius:50%;">
-      <span style="font-size:13px; color:var(--text);">${m.name}</span>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(255,255,255,0.05); padding:6px 12px; border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <img src="https://cdn.discordapp.com/avatars/${m.id}/${m.avatar}.png?size=32" alt="Party Member" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'" style="width:32px; height:32px; border-radius:50%;">
+        <div style="display:flex; flex-direction:column; justify-content:center;">
+          <span style="font-size:13px; color:var(--text); font-weight: 500; line-height:1.2;">${m.name}</span>
+          <span style="font-size:11px; color:var(--text-dim); line-height:1.2; margin-top:2px;">${m.currentStatus || 'Idle'}</span>
+        </div>
+      </div>
+      ${m.serverIp && m.modpackSegment && m.id !== (typeof currentDiscordUser !== 'undefined' ? currentDiscordUser?.id : null) ? `<button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; min-width: 50px;" onclick="window.joinPartyServer('${m.serverIp}', '${m.modpackSegment}')">Join</button>` : ''}
     </div>
   `).join('');
 }
@@ -1117,6 +1354,14 @@ function appendChatMessage(msg, isSelf) {
   `;
   partyChatLog.appendChild(el);
   partyChatLog.scrollTop = partyChatLog.scrollHeight;
+
+  if (!isSelf && (!partySoundsToggle || partySoundsToggle.checked)) {
+    try {
+      const audio = new Audio('./notification.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(e => console.warn("Could not play notification sound:", e));
+    } catch (e) {}
+  }
 }
 
 async function sendPartyChatMessage() {
@@ -1151,21 +1396,21 @@ window.electronAPI.onPartyChatMessage((msg) => {
 });
 
 
-window.electronAPI.onPartyStartInstance(async (payload) => {
-  if (payload.modpackSegment) {
-    const isCustomPack = payload.modpackSegment.startsWith('bb:');
-    const bbKey = isCustomPack ? payload.modpackSegment.substring(3) : null;
+window.joinPartyServer = async (serverIp, modpackSegment) => {
+  if (modpackSegment) {
+    const isCustomPack = modpackSegment.startsWith('bb:');
+    const bbKey = isCustomPack ? modpackSegment.substring(3) : null;
 
     Swal.fire({
       title: 'Party Starting',
-      text: `The party leader is starting a modpack. Do you want to join them?`,
+      text: `Your friend is playing on a modpack. Do you want to join them?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Yes, Download & Join'
     }).then(async (result) => {
       if (result.isConfirmed) {
-        if (payload.serverIp) {
-          await window.electronAPI.setPendingJoinServer(payload.serverIp);
+        if (serverIp) {
+          await window.electronAPI.setPendingJoinServer(serverIp);
         }
 
         // Trigger the same modpack join logic as a regular Discord Invite
@@ -1216,48 +1461,61 @@ window.electronAPI.onPartyStartInstance(async (payload) => {
             }
             proceed();
           } catch (e) {
-            Swal.fire('Error', 'Failed to fetch party modpack data', 'error');
+            window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
           }
         }
       }
     });
   }
+};
+
+window.electronAPI.onPartyStartInstance(async (payload) => {
+  window.joinPartyServer(payload.serverIp, payload.modpackSegment);
 });
 
 // ─── Launch status ──────────────────────────────────────────────
 window.electronAPI.onLaunchStatus((status) => {
-  // Parse percentage if present (e.g. "Downloading files... 45%")
-  let pctMatch = status.match(/(\d+)%/);
-  let percentage = pctMatch ? pctMatch[1] + '%' : null;
-  let textOnly = status.replace(/\s*\d+%/, '').trim();
+  const isRunning = status.toLowerCase().includes('game is running');
+  const isCloseOrExit = status.toLowerCase().includes('closed') || status.toLowerCase().includes('exit') || status.toLowerCase().includes('close');
+  const isCrashed = status.toLowerCase().includes('crashed') || status.toLowerCase().includes('error') || status.toLowerCase().includes('failed');
 
-  const dbProg = document.getElementById('dashboard-download-progress');
+  let existingToast = document.getElementById('launch-progress-toast');
 
-  if (launchingInstanceId === 'default' && launchStatus) {
-    if (percentage) {
-      launchStatus.innerText = 'Installing...';
-      if (dbProg) {
-        dbProg.style.display = 'block';
-        document.getElementById('dashboard-progress-text').innerText = textOnly;
-        document.getElementById('dashboard-progress-pct').innerText = percentage;
-        document.getElementById('dashboard-progress-fill').style.width = percentage;
-      }
+  if (isCrashed) {
+    if (existingToast) existingToast.remove();
+    window.showToast({ title: 'Launch Failed', message: status, type: 'error' });
+  } else if (isCloseOrExit) {
+    if (existingToast) existingToast.remove();
+  } else if (isRunning) {
+    if (existingToast) {
+      const msgEl = existingToast.querySelector('.toast-message');
+      if (msgEl) msgEl.innerText = 'Instance started';
+      const titleEl = existingToast.querySelector('.toast-title');
+      if (titleEl) titleEl.innerText = 'Launch Complete';
+      setTimeout(() => {
+        existingToast.classList.add('fade-out');
+        setTimeout(() => existingToast.remove(), 400);
+      }, 5000);
     } else {
-      launchStatus.innerText = status;
-      if (dbProg) dbProg.style.display = 'none';
+      window.showToast({ title: 'Launch Complete', message: 'Instance started', type: 'success', duration: 5000 });
+    }
+  } else {
+    // Normal progress update
+    if (existingToast) {
+      const msgEl = existingToast.querySelector('.toast-message');
+      if (msgEl) msgEl.innerText = status;
+    } else {
+      window.showToast({
+        id: 'launch-progress-toast',
+        title: 'Launching Instance',
+        message: status,
+        type: 'launch'
+      });
     }
   }
 
-  if (currentInstanceId === launchingInstanceId && detailStatus) {
-    detailStatus.innerText = status;
-  }
-
-  // Handle resets
-  const isCloseOrExit = status.toLowerCase().includes('close') || status.toLowerCase().includes('exit');
-  const isCrashed = status.toLowerCase().includes('crashed');
-
-  if (isCloseOrExit || status.toLowerCase().includes('game is running') || isCrashed) {
-    const isRunning = status.toLowerCase().includes('game is running');
+  // Handle resets & UI play button updates
+  if (isCloseOrExit || isRunning || isCrashed) {
     if (isRunning) {
       runningInstanceId = launchingInstanceId || 'default';
       playLabel.innerText = 'Running';
@@ -1267,6 +1525,7 @@ window.electronAPI.onLaunchStatus((status) => {
       playLabel.innerText = 'Play';
       if (detailPlayLabel) detailPlayLabel.innerText = 'Play';
       launchStatus.innerText = '';
+      if (detailStats) detailStats.style.display = 'none';
 
       // Globally re-enable all play buttons only when closing/exiting/crashing
       document.querySelectorAll('.btn-play, .btn-play-sm').forEach(btn => {
@@ -1318,23 +1577,34 @@ window.electronAPI.onLaunchStatus((status) => {
           if (isCorruptionError) {
             Swal.fire({ title: 'Repairing...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
             window.electronAPI.repairInstance(launchingInstanceId || 'default').then((res) => {
-              if (res.success) Swal.fire({ title: 'Repaired', text: 'The instance cache has been cleared. Please try launching again.', icon: 'success' });
-              else Swal.fire({ title: 'Repair Failed', text: res.error, icon: 'error' });
+              if (res.success) window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
+              else window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
             });
           } else {
             navigator.clipboard.writeText(status);
-            Swal.fire({ title: 'Copied!', text: 'The error message has been copied to your clipboard.', icon: 'success', timer: 1500, showConfirmButton: false });
+            window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
           }
         } else if (result.isDenied) {
           if (isCorruptionError) {
             navigator.clipboard.writeText(status);
-            Swal.fire({ title: 'Copied!', text: 'The error message has been copied to your clipboard.', icon: 'success', timer: 1500, showConfirmButton: false });
+            window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
           } else if (isCrashEvent) {
             if (window.electronAPI.openInstanceFolder) window.electronAPI.openInstanceFolder(launchingInstanceId || 'default');
           }
         }
       });
     }
+  }
+});
+
+// ─── Instance Stats ─────────────────────────────────────────────
+window.electronAPI.onInstanceStats((stats) => {
+  console.log('[UI STATS] Received stats:', stats, 'Current Instance ID:', currentInstanceId);
+  if (currentInstanceId === stats.instanceId && detailStats) {
+    const cpuStr = stats.cpu.toFixed(1) + '%';
+    const ramStr = (stats.memory / 1024 / 1024).toFixed(1) + ' MB';
+    detailStats.innerText = `CPU: ${cpuStr} | RAM: ${ramStr}`;
+    detailStats.style.display = 'block';
   }
 });
 
@@ -1350,9 +1620,14 @@ async function loadInstances() {
     instancesGrid.innerHTML = '';
     for (const inst of res.instances) {
       const loaderDisplay = inst.loaderVersion ? `${inst.loader} ${inst.loaderVersion}` : inst.loader;
+      const loaderName = (inst.loader || 'vanilla').toLowerCase();
+      const logoSrc = `/logos/${loaderName}.png`;
       instancesGrid.innerHTML += `
         <div class="instance-card glass-panel" data-id="${inst.id}" style="cursor: pointer;">
-          <div class="instance-icon">⛏</div>
+          <div class="instance-icon">
+            <img src="${logoSrc}" onload="this.style.display='block'; this.nextElementSibling.style.display='none';" style="display: none; width: 28px; height: 28px; object-fit: contain;">
+            <span>⛏</span>
+          </div>
           <div class="instance-info">
             <h3 class="instance-name">${inst.name}</h3>
             <p class="instance-meta">Minecraft ${inst.version} · ${loaderDisplay}</p>
@@ -1396,9 +1671,14 @@ async function loadInstances() {
         const inst = res.instances.find(i => i.id === instanceId);
         if (inst) {
           currentInstanceId = instanceId;
+          if (detailStats) detailStats.style.display = 'none';
           const loaderDisplay = inst.loaderVersion ? `${inst.loader} ${inst.loaderVersion}` : inst.loader;
           detailTitle.innerText = inst.name;
-          detailSubtitle.innerText = `Minecraft ${inst.version} · ${loaderDisplay}`;
+          if (inst.version === 'Unknown') {
+            detailSubtitle.innerText = `Unknown Version · ${loaderDisplay}`;
+          } else {
+            detailSubtitle.innerText = `Minecraft ${inst.version} · ${loaderDisplay}`;
+          }
 
           if (isLaunching) {
             detailStatus.innerText = 'Busy...';
@@ -1468,16 +1748,7 @@ async function loadInstances() {
               const selected = Array.from(listEl.querySelectorAll('.content-checkbox:checked')).map(c => c.getAttribute('data-file'));
               if (selected.length === 0) return;
 
-              const res = await Swal.fire({
-                title: 'Delete Files?',
-                text: `Are you sure you want to throw away ${selected.length} item(s)? Deleted Files can be restored from your Recycle Bin.`,
-                icon: 'warning',
-                showCancelButton: true,
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                confirmButtonColor: '#ff5555',
-                confirmButtonText: 'Yes!'
-              });
+              const res = await window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
 
               if (res.isConfirmed) {
                 for (const file of selected) {
@@ -1555,6 +1826,7 @@ newInstanceBtn.addEventListener('click', async () => {
             <div class="custom-option" data-value="forge">Forge</div>
             <div class="custom-option" data-value="neoforge">NeoForge</div>
             <div class="custom-option" data-value="fabric">Fabric</div>
+            <div class="custom-option" data-value="quilt">Quilt</div>
           </div>
         </div>
         <div id="loader-version-container" style="display:none;">
@@ -1685,7 +1957,7 @@ newInstanceBtn.addEventListener('click', async () => {
       const handleLoaderOrVersionChange = () => {
         const loader = loaderInput.value;
         let minMinor = 0;
-        if (loader === 'fabric') minMinor = 14;
+        if (loader === 'fabric' || loader === 'quilt') minMinor = 14;
         else if (loader === 'neoforge') minMinor = 20;
         else if (loader === 'forge') minMinor = 7;
 
@@ -1740,22 +2012,10 @@ newInstanceBtn.addEventListener('click', async () => {
 
   const result = await window.electronAPI.createInstance(formValues);
   if (result.success) {
-    Swal.fire({
-      title: 'Success!',
-      text: 'Instance created successfully!',
-      icon: 'success',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 });
     loadInstances();
   } else if (result.error !== 'Canceled') {
-    Swal.fire({
-      title: 'Error',
-      text: result.error,
-      icon: 'error',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
   }
 });
 
@@ -1785,13 +2045,7 @@ dropZone.addEventListener('drop', async (e) => {
 
   const file = e.dataTransfer.files?.[0];
   if (!file?.name.endsWith('.zip') && !file?.name.endsWith('.mrpack')) {
-    Swal.fire({
-      title: 'Invalid File',
-      text: 'Please drop a .zip or .mrpack modpack file.',
-      icon: 'error',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
     return;
   }
 
@@ -1875,12 +2129,12 @@ function updateSliderLabels() {
 if (overrideInput) {
   overrideInput.addEventListener('change', () => {
     if (cardGameSettings) cardGameSettings.style.display = overrideInput.checked ? 'block' : 'none';
-    
+
     // Also show/hide the Game Settings tab button
     const gameTabBtn = document.getElementById('tab-btn-game');
     if (gameTabBtn) {
       gameTabBtn.style.display = overrideInput.checked ? 'block' : 'none';
-      
+
       // If we're turning it off and we are CURRENTLY on the game tab, switch back to Java & Memory
       if (!overrideInput.checked && gameTabBtn.style.color === 'var(--primary)') {
         const javaTabBtn = document.querySelector('.settings-tab-btn[data-target="stab-java"]');
@@ -1901,6 +2155,9 @@ async function loadSettings() {
     }
     if (s.allowJoin !== undefined && allowJoinToggle) {
       allowJoinToggle.checked = s.allowJoin;
+    }
+    if (s.partySounds !== undefined && partySoundsToggle) {
+      partySoundsToggle.checked = s.partySounds;
     }
     if (s.mcOptions) {
       const mc = s.mcOptions;
@@ -1976,6 +2233,7 @@ saveSettingsBtn.addEventListener('click', async () => {
     javaPath: javaInput.value,
     override: overrideInput ? overrideInput.checked : false,
     allowJoin: allowJoinToggle ? allowJoinToggle.checked : true,
+    partySounds: partySoundsToggle ? partySoundsToggle.checked : true,
     closeBehavior: selectedBehavior,
     trayClickAction: selectedTrayClick,
     mcOptions
@@ -2021,9 +2279,9 @@ document.querySelectorAll('input[name="tray-click-action"]').forEach(radio => {
 });
 
 // ─── Settings Inner Tabs ─────────────────────────────────────────
-(function() {
+(function () {
   const tabBtns = document.querySelectorAll('.settings-tab-btn');
-  const panels  = document.querySelectorAll('.settings-sub-panel');
+  const panels = document.querySelectorAll('.settings-sub-panel');
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2161,14 +2419,20 @@ async function fetchBrowserResults() {
   const category = categorySelect ? categorySelect.value : '';
 
   if (platform === 'modrinth') {
-    let loader = instance.loader === 'neoforge' ? 'neoforge' : (instance.loader === 'forge' ? 'forge' : (instance.loader === 'fabric' ? 'fabric' : null));
+    let loader = instance.loader === 'neoforge' ? 'neoforge' : (instance.loader === 'forge' ? 'forge' : (instance.loader === 'fabric' ? 'fabric' : (instance.loader === 'quilt' ? 'quilt' : null)));
     const config = modrinthConfig[currentModrinthType];
     let facets = [];
     if (config.facet === 'mod' || config.facet === 'resourcepack' || config.facet === 'shader') {
       facets.push([`project_type:${config.facet}`]);
     }
     if (version) facets.push([`versions:${version}`]);
-    if (loader && config.facet === 'mod') facets.push([`categories:${loader}`]);
+    if (loader && config.facet === 'mod') {
+      if (loader === 'quilt') {
+        facets.push(['categories:quilt', 'categories:fabric']);
+      } else {
+        facets.push([`categories:${loader}`]);
+      }
+    }
     if (category) facets.push([`categories:${category}`]);
 
     const queryParams = new URLSearchParams({
@@ -2200,6 +2464,7 @@ async function fetchBrowserResults() {
       if (instance.loader === 'forge') modLoaderType = 1;
       if (instance.loader === 'fabric') modLoaderType = 4;
       if (instance.loader === 'neoforge') modLoaderType = 6;
+      if (instance.loader === 'quilt') modLoaderType = 4; // Quilt compatibility
     }
     const classId = currentModrinthType === 'mod' ? 6 : 12;
 
@@ -2285,11 +2550,18 @@ async function downloadBrowserProject(projectId, platform, btnElement) {
   const version = instance?.version;
   const folderName = modrinthConfig[currentModrinthType].folder;
 
+  window.downloadingInstanceId = currentInstanceId;
   try {
     if (platform === 'modrinth') {
-      let loader = instance?.loader === 'neoforge' ? 'neoforge' : (instance?.loader === 'forge' ? 'forge' : (instance?.loader === 'fabric' ? 'fabric' : null));
+      let loader = instance?.loader === 'neoforge' ? 'neoforge' : (instance?.loader === 'forge' ? 'forge' : (instance?.loader === 'fabric' ? 'fabric' : (instance?.loader === 'quilt' ? 'quilt' : null)));
       let loadersQuery = '';
-      if (loader && currentModrinthType === 'mod') loadersQuery = `&loaders=["${loader}"]`;
+      if (loader && currentModrinthType === 'mod') {
+        if (loader === 'quilt') {
+          loadersQuery = `&loaders=["quilt","fabric"]`;
+        } else {
+          loadersQuery = `&loaders=["${loader}"]`;
+        }
+      }
 
       const vRes = await fetch(`https://api.modrinth.com/v2/project/${projectId}/version?game_versions=["${version}"]${loadersQuery}`, {
         headers: { 'User-Agent': 'Crystalline-Launcher/1.0' }
@@ -2309,6 +2581,7 @@ async function downloadBrowserProject(projectId, platform, btnElement) {
         if (instance?.loader === 'forge') modLoaderType = 1;
         if (instance?.loader === 'fabric') modLoaderType = 4;
         if (instance?.loader === 'neoforge') modLoaderType = 6;
+        if (instance?.loader === 'quilt') modLoaderType = 4; // Quilt compatibility
       }
       const data = await window.electronAPI.getCurseForgeFiles(projectId, version, modLoaderType);
       if (!data || !data.data || data.data.length === 0) throw new Error('No compatible version file found on CurseForge.');
@@ -2326,7 +2599,9 @@ async function downloadBrowserProject(projectId, platform, btnElement) {
   } catch (err) {
     btnElement.innerText = 'Error';
     btnElement.style.background = 'var(--error)';
-    Swal.fire('Download Error', err.message, 'error');
+    window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
+  } finally {
+    window.downloadingInstanceId = null;
   }
 
   setTimeout(() => {
@@ -2339,89 +2614,199 @@ async function downloadBrowserProject(projectId, platform, btnElement) {
   }, 3000);
 }
 
+function initPremiumFeatures() {
+  // 1. Log controls: Copy, Clear, Search
+  const searchLogs = document.getElementById('search-logs');
+  const btnCopyLogs = document.getElementById('btn-copy-logs');
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+
+  if (searchLogs) {
+    searchLogs.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      if (!instanceLogs) return;
+      const lines = instanceLogs.querySelectorAll('.log-line');
+      for (const line of lines) {
+        const content = line.textContent.toLowerCase();
+        if (query === '' || content.includes(query)) {
+          line.style.display = 'block';
+        } else {
+          line.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  if (btnCopyLogs) {
+    btnCopyLogs.addEventListener('click', () => {
+      if (!instanceLogs) return;
+      const text = Array.from(instanceLogs.querySelectorAll('.log-line'))
+        .map(div => div.textContent)
+        .join('\n');
+      navigator.clipboard.writeText(text);
+      
+      const originalText = btnCopyLogs.innerText;
+      btnCopyLogs.innerText = 'Copied!';
+      btnCopyLogs.style.background = 'var(--success)';
+      setTimeout(() => {
+        btnCopyLogs.innerText = originalText;
+        btnCopyLogs.style.background = '';
+      }, 1500);
+    });
+  }
+
+  if (btnClearLogs) {
+    btnClearLogs.addEventListener('click', () => {
+      if (instanceLogs) {
+        instanceLogs.innerHTML = '';
+      }
+    });
+  }
+
+  // 2. Settings RAM Auto Recommendation
+  const btnRecommendRam = document.getElementById('btn-recommend-ram');
+  if (btnRecommendRam) {
+    btnRecommendRam.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        const totalBytes = await window.electronAPI.getSystemRam();
+        const totalGb = Math.round(totalBytes / 1024 / 1024 / 1024);
+        
+        let recommendedGb = Math.round(totalGb * 0.45);
+        if (recommendedGb < 3) recommendedGb = 3;
+        if (recommendedGb > 8) recommendedGb = 8;
+        
+        const ramInput = document.getElementById('setting-ram');
+        if (ramInput) {
+          ramInput.value = recommendedGb + 'G';
+          ramInput.dispatchEvent(new Event('change', { bubbles: true }));
+          window.showToast({
+            title: 'RAM Empfohlen',
+            message: `Deinem System wurden optimal ${recommendedGb} GB RAM zugewiesen (von insgesamt ${totalGb} GB).`,
+            type: 'success',
+            duration: 4000
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch system RAM:", err);
+        window.showToast({ title: 'Error', message: 'Konnte System-RAM nicht auslesen.', type: 'error' });
+      }
+    });
+  }
+
+  // 3. Card Hover Radial Glow Effect
+  document.body.addEventListener('mousemove', (e) => {
+    const card = e.target.closest('.instance-card');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    card.style.setProperty('--mouse-x', `${x}px`);
+    card.style.setProperty('--mouse-y', `${y}px`);
+  });
+}
+
 // ─── Phase 1: Dashboard Widgets ──────────────────────────────────────
 async function initDashboardWidgets() {
   const serverContent = document.getElementById('server-status-content');
   const newsContent = document.getElementById('news-content');
-  if (!serverContent || !newsContent) return;
 
   // 1. Fetch Server Status
-  try {
-    const res = await fetch('https://api.mcsrvstat.us/3/ramazanfemboy.duckdns.org:25565');
-    const data = await res.json();
-    if (data.online) {
-      serverContent.innerHTML = `
-        <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
-          <div style="width:12px; height:12px; border-radius:50%; background:var(--success); box-shadow: 0 0 8px var(--success);"></div>
-          <span style="font-size:14px; color:var(--text); font-weight:600;">Online</span>
-          <span style="font-size:13px; color:var(--primary); margin-left:auto;">${data.players.online} / ${data.players.max} Players</span>
-        </div>
-        ${data.motd?.clean?.length ? `<div style="margin-top:12px; font-size:12px; color:var(--text-dim); background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; font-family:monospace;">${data.motd.clean.join('<br>')}</div>` : ''}
-      `;
-    } else {
-      serverContent.innerHTML = `
-        <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
-          <div style="width:12px; height:12px; border-radius:50%; background:var(--error); box-shadow: 0 0 8px var(--error);"></div>
-          <span style="font-size:14px; color:var(--text); font-weight:600;">Offline</span>
-        </div>
-        <div style="margin-top:12px; font-size:12px; color:var(--text-dim);">Server is currently unreachable.</div>
-      `;
-    }
-  } catch (err) {
-    serverContent.innerHTML = `<div style="color:var(--error); margin-top:8px;">Failed to load status.</div>`;
+  if (serverContent) {
+    const fetchServerStatus = async () => {
+      try {
+        const res = await fetch('https://api.mcsrvstat.us/3/ramazanfemboy.duckdns.org:25565');
+        const data = await res.json();
+        if (data.online) {
+          serverContent.innerHTML = `
+            <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+              <div style="width:12px; height:12px; border-radius:50%; background:var(--success); box-shadow: 0 0 8px var(--success);"></div>
+              <span style="font-size:14px; color:var(--text); font-weight:600;">Online</span>
+              <span style="font-size:13px; color:var(--primary); margin-left:auto;">${data.players.online} / ${data.players.max} Players</span>
+            </div>
+            ${data.motd?.clean?.length ? `<div style="margin-top:12px; font-size:12px; color:var(--text-dim); background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; font-family:monospace;">${data.motd.clean.join('<br>')}</div>` : ''}
+          `;
+        } else {
+          serverContent.innerHTML = `
+            <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+              <div style="width:12px; height:12px; border-radius:50%; background:var(--error); box-shadow: 0 0 8px var(--error);"></div>
+              <span style="font-size:14px; color:var(--text); font-weight:600;">Offline</span>
+            </div>
+            <div style="margin-top:12px; font-size:12px; color:var(--text-dim);">Server is currently unreachable.</div>
+          `;
+        }
+      } catch (err) {
+        serverContent.innerHTML = `<div style="color:var(--error); margin-top:8px;">Failed to load status.</div>`;
+      }
+    };
+    fetchServerStatus();
   }
 
-  // 2. Fetch Patch Notes from GitHub
-  try {
-    const res = await fetch('https://raw.githubusercontent.com/Minenblock/crystalline-launcher/main/patch_notes.md');
-    if (!res.ok) throw new Error('Not found');
-    const md = await res.text();
+  // 2. Fetch Patch Notes from local file via IPC
+  if (newsContent) {
+    const fetchPatchNotes = async () => {
+      try {
+        const res = await window.electronAPI.getPatchNotes();
+        if (!res.success) throw new Error(res.error || 'Failed to load');
+        const md = res.markdown;
 
-    // Simple Markdown → HTML renderer (h2, h3, bullet lists, bold, italic, hr)
-    const renderMd = (text) => {
-      const lines = text.split('\n');
-      let html = '';
-      let inList = false;
-      for (const raw of lines) {
-        const line = raw.trimEnd();
-        if (line.startsWith('## ')) {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<h2 style="margin:16px 0 4px; font-size:14px; color:var(--primary); border-bottom:1px solid var(--outline); padding-bottom:4px;">${line.slice(3)}</h2>`;
-        } else if (line.startsWith('### ')) {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<h3 style="margin:10px 0 2px; font-size:12px; color:var(--text); font-weight:700;">${line.slice(4)}</h3>`;
-        } else if (line.startsWith('- ') || line.startsWith('• ')) {
-          if (!inList) { html += '<ul style="margin:4px 0 0 14px; padding:0; list-style:disc;">'; inList = true; }
-          const item = line.slice(2).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*/g, '<i>$1</i>');
-          html += `<li style="margin:3px 0; font-size:12px; color:var(--text-dim);">${item}</li>`;
-        } else if (line === '---') {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<hr style="border:none; border-top:1px solid var(--outline); margin:12px 0;">`;
-        } else if (line.startsWith('*') && line.endsWith('*')) {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<p style="margin:2px 0; font-size:11px; color:var(--text-dim); font-style:italic;">${line.slice(1, -1)}</p>`;
-        } else if (line.trim()) {
-          if (inList) { html += '</ul>'; inList = false; }
-          const p = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*/g, '<i>$1</i>');
-          html += `<p style="margin:4px 0; font-size:12px; color:var(--text-dim);">${p}</p>`;
-        } else {
-          if (inList) { html += '</ul>'; inList = false; }
-        }
+        // Simple Markdown → HTML renderer (h2, h3, bullet lists, bold, italic, hr)
+        const renderMd = (text) => {
+          const lines = text.split('\n');
+          let html = '';
+          let inList = false;
+          for (const raw of lines) {
+            const line = raw.trimEnd();
+            if (line.startsWith('# ')) {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += `<h1 style="margin:16px 0 8px; font-size:16px; color:var(--primary); font-weight:700; font-family:'Pixelify Sans', sans-serif;">${line.slice(2)}</h1>`;
+            } else if (line.startsWith('## ')) {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += `<h2 style="margin:16px 0 4px; font-size:14px; color:var(--primary); border-bottom:1px solid var(--outline); padding-bottom:4px;">${line.slice(3)}</h2>`;
+            } else if (line.startsWith('### ')) {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += `<h3 style="margin:10px 0 2px; font-size:12px; color:var(--text); font-weight:700;">${line.slice(4)}</h3>`;
+            } else if (line.startsWith('- ') || line.startsWith('• ')) {
+              if (!inList) { html += '<ul style="margin:4px 0 0 14px; padding:0; list-style:disc;">'; inList = true; }
+              const item = line.slice(2).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*/g, '<i>$1</i>');
+              html += `<li style="margin:3px 0; font-size:12px; color:var(--text-dim);">${item}</li>`;
+            } else if (line === '---') {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += `<hr style="border:none; border-top:1px solid var(--outline); margin:12px 0;">`;
+            } else if (line.startsWith('*') && line.endsWith('*')) {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += `<p style="margin:2px 0; font-size:11px; color:var(--text-dim); font-style:italic;">${line.slice(1, -1)}</p>`;
+            } else if (line.trim()) {
+              if (inList) { html += '</ul>'; inList = false; }
+              const p = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*/g, '<i>$1</i>');
+              html += `<p style="margin:4px 0; font-size:12px; color:var(--text-dim);">${p}</p>`;
+            } else {
+              if (inList) { html += '</ul>'; inList = false; }
+            }
+          }
+          if (inList) html += '</ul>';
+          return html;
+        };
+
+        newsContent.innerHTML = `<div style="margin-top:8px; max-height:220px; overflow-y:auto; padding-right:4px;">${renderMd(md)}</div>`;
+      } catch (err) {
+        newsContent.innerHTML = `<div style="color:var(--error); margin-top:8px; font-size:12px;">Failed to load patch notes.</div>`;
       }
-      if (inList) html += '</ul>';
-      return html;
     };
-
-    newsContent.innerHTML = `<div style="margin-top:8px; max-height:220px; overflow-y:auto; padding-right:4px;">${renderMd(md)}</div>`;
-  } catch (err) {
-    newsContent.innerHTML = `<div style="color:var(--error); margin-top:8px; font-size:12px;">Failed to load patch notes.</div>`;
+    fetchPatchNotes();
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    initDashboardWidgets();
+    initCustomTooltips();
+    initPremiumFeatures();
+  });
+} else {
   initDashboardWidgets();
   initCustomTooltips();
-});
+  initPremiumFeatures();
+}
 
 // ─── Custom Tooltips ──────────────────────────────────────────────
 function initCustomTooltips() {
@@ -2444,23 +2829,23 @@ function initCustomTooltips() {
 
   function positionTooltip(e) {
     if (!tooltip.classList.contains('visible')) return;
-    
+
     // Position offset from cursor
     let x = e.clientX + 15;
     let y = e.clientY + 15;
-    
+
     const rect = tooltip.getBoundingClientRect();
-    
+
     // Prevent overflowing right edge
     if (x + rect.width > window.innerWidth - 10) {
       x = e.clientX - rect.width - 10;
     }
-    
+
     // Prevent overflowing bottom edge
     if (y + rect.height > window.innerHeight - 10) {
       y = e.clientY - rect.height - 10;
     }
-    
+
     tooltip.style.left = `${x}px`;
     tooltip.style.top = `${y}px`;
   }
@@ -2553,14 +2938,7 @@ if (window.electronAPI.onShowTrayToast) {
 
 if (window.electronAPI.onShowQuitWarning) {
   window.electronAPI.onShowQuitWarning(() => {
-    Swal.fire({
-      title: 'Task in Progress',
-      text: 'A download or installation is currently running in the background. Quitting the launcher now may corrupt your files. Are you sure you want to quit?',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Force Quit',
-      cancelButtonText: 'Cancel'
-    }).then((result) => {
+    window.showToast({ title: 'Error', message: 'An error occurred.', type: 'error' }).then((result) => {
       if (result.isConfirmed) {
         window.electronAPI.forceQuit();
       }
@@ -2629,27 +3007,12 @@ window.previewSkin = async (path, base64) => {
     if (msg && msg.toLowerCase().includes('skin size')) {
       msg = 'Invalid skin resolution. Please ensure the skin image is exactly 64x64 or 64x32 pixels.';
     }
-    Swal.fire({
-      title: 'Skin Load Error',
-      text: msg,
-      icon: 'error',
-      background: 'var(--surface-hover)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Error', message: err?.message || 'An error occurred.', type: 'error' });
   }
 };
 
 window.deleteSkin = async (name) => {
-  const res = await Swal.fire({
-    title: 'Remove Skin?',
-    text: `Are you sure you want to remove ${name} from your library?`,
-    icon: 'warning',
-    showCancelButton: true,
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    confirmButtonColor: '#ff5555',
-    confirmButtonText: 'Yes!'
-  });
+  const res = await window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
 
   if (res.isConfirmed) {
     await window.electronAPI.deleteSkin(name);
@@ -2686,10 +3049,10 @@ function bindSkinEvents() {
         window.previewSkin(res.path, res.base64);
         refreshSkinLibrary();
       } else {
-        Swal.fire({ title: 'Not Found', text: res.error, icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       }
     } catch (e) {
-      Swal.fire({ title: 'Search Error', text: e.message || String(e), icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+      window.showToast({ title: 'Error', message: e?.message || 'An error occurred.', type: 'error' });
     } finally {
       btnSearch.innerText = 'Search';
     }
@@ -2703,7 +3066,7 @@ function bindSkinEvents() {
 
   btnApply.addEventListener('click', async () => {
     if (!currentSkinPath) {
-      Swal.fire({ title: 'No Skin', text: 'Please select a skin first.', icon: 'warning', background: 'var(--surface-hover)', color: 'var(--text)' });
+      window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
       return;
     }
     btnApply.innerText = 'Applying...';
@@ -2718,12 +3081,12 @@ function bindSkinEvents() {
       applyStatus.style.display = 'block';
       setTimeout(() => { applyStatus.style.display = 'none'; }, 3000);
     } else {
-      Swal.fire({ title: 'Upload Failed', text: res.error, icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+      window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
     }
   });
 
   btnSaveLib.addEventListener('click', () => {
-    Swal.fire({ title: 'Info', text: 'The previewed skin is already in your library!', icon: 'info', background: 'var(--surface-hover)', color: 'var(--text)' });
+    window.showToast({ title: 'Info', message: 'Here is some information.', type: 'info' });
   });
 }
 
@@ -2761,17 +3124,7 @@ document.querySelectorAll('.instance-tab-btn').forEach(btn => {
 // ─── Auto-Updater Frontend Logic ─────────────────────────────────
 if (window.electronAPI.onUpdateAvailable) {
   window.electronAPI.onUpdateAvailable((info) => {
-    Swal.fire({
-      title: 'Update Available!',
-      text: `Version ${info.version} is ready to download.`,
-      icon: 'info',
-      showCancelButton: true,
-      confirmButtonText: 'Download',
-      cancelButtonText: 'Later',
-      background: 'var(--surface)',
-      color: 'var(--text)',
-      confirmButtonColor: 'var(--primary)'
-    }).then((result) => {
+    window.showToast({ title: 'Info', message: 'Here is some information.', type: 'info' }).then((result) => {
       if (result.isConfirmed) {
         window.electronAPI.startDownloadUpdate();
         Swal.fire({
@@ -2796,18 +3149,7 @@ if (window.electronAPI.onUpdateAvailable) {
   });
 
   window.electronAPI.onUpdateDownloaded((info) => {
-    Swal.fire({
-      title: 'Update Ready',
-      text: `Version ${info.version} has been downloaded. Restart to install?`,
-      icon: 'success',
-      showCancelButton: true,
-      confirmButtonText: 'Restart & Install',
-      cancelButtonText: 'Later',
-      background: 'var(--surface)',
-      color: 'var(--text)',
-      confirmButtonColor: 'var(--primary)',
-      allowOutsideClick: false
-    }).then((result) => {
+    window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 }).then((result) => {
       if (result.isConfirmed) {
         window.electronAPI.quitAndInstallUpdate();
       }
@@ -2815,13 +3157,7 @@ if (window.electronAPI.onUpdateAvailable) {
   });
 
   window.electronAPI.onUpdateError((err) => {
-    Swal.fire({
-      title: 'Update Error',
-      text: err,
-      icon: 'error',
-      background: 'var(--surface)',
-      color: 'var(--text)'
-    });
+    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
   });
 }
 
@@ -2899,7 +3235,7 @@ async function loadStorageVersions() {
       if (delRes.success) {
         loadStorageVersions();
       } else {
-        Swal.fire({ title: 'Error', text: delRes.error, icon: 'error', background: 'var(--surface-hover)', color: 'var(--text)' });
+        window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
         btn.disabled = false;
         btn.innerHTML = '🗑 Delete';
       }

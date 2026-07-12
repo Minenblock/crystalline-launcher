@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchPlayerSkin: (username) => ipcRenderer.invoke('fetch-player-skin', username),
   getFilePath: (file) => webUtils.getPathForFile(file),
   onDiscordStatus: (callback) => ipcRenderer.on('discord-status', (_event, value) => callback(value)),
+  onDiscordLocalUser: (callback) => ipcRenderer.on('discord-local-user', (_event, user) => callback(user)),
   onLaunchStatus: (callback) => ipcRenderer.on('launch-status', (_event, value) => callback(value)),
   onMcLog: (callback) => ipcRenderer.on('mc-log', (_event, value) => callback(value)),
   onDiscordActivityJoin: (callback) => ipcRenderer.on('discord-activity-join', (_event, secret) => callback(secret)),
@@ -40,7 +41,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDiscordJoinRequest: (callback) => ipcRenderer.on('discord-join-request', (_event, user) => callback(user)),
   approveJoinRequest: (userId) => ipcRenderer.invoke('approve-join-request', userId),
   denyJoinRequest: (userId) => ipcRenderer.invoke('deny-join-request', userId),
-  sendDiscordInvite: (userId) => ipcRenderer.invoke('send-discord-invite', userId),
   updateDiscordPresence: (opts) => ipcRenderer.invoke('update-discord-presence', opts),
   setPendingJoinServer: (serverIp) => ipcRenderer.invoke('set-pending-join-server', serverIp),
   resetInstanceLock: (instanceId) => ipcRenderer.invoke('reset-instance-lock', instanceId),
@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   forceQuit: () => ipcRenderer.invoke('force-quit'),
   showMainWindow: () => ipcRenderer.invoke('show-main-window'),
   showSettings: () => ipcRenderer.invoke('show-settings'),
+  showFriends: () => ipcRenderer.invoke('show-friends'),
   quitApp: () => ipcRenderer.invoke('quit-app'),
   onNavigateTo: (callback) => ipcRenderer.on('navigate-to', (_event, tab) => callback(tab)),
   onShowTrayToast: (callback) => ipcRenderer.on('show-tray-toast', () => callback()),
@@ -60,14 +61,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadCurseForgeFile: (url, instanceId, folderName, fileName) => ipcRenderer.invoke('download-curseforge-file', url, instanceId, folderName, fileName),
 
   // Party System
-  createParty: () => ipcRenderer.invoke('create-party'),
+  createParty: (user) => ipcRenderer.invoke('create-party', user),
   joinParty: (groupId, aesKey, user) => ipcRenderer.invoke('join-party', groupId, aesKey, user),
-  leaveParty: () => ipcRenderer.invoke('leave-party'),
+  leaveParty: (userId) => ipcRenderer.invoke('leave-party', userId),
+  sendPartyChatMessage: (user, message) => ipcRenderer.invoke('send-party-chat-message', user, message),
+  updatePartyStatus: (statusText, userId) => ipcRenderer.invoke('update-party-status', statusText, userId),
   startPartyInstance: (payload) => ipcRenderer.invoke('start-party-instance', payload),
   onPartyUpdate: (callback) => ipcRenderer.on('party-update', (_event, state) => callback(state)),
   onPartyStartInstance: (callback) => ipcRenderer.on('party-start-instance', (_event, payload) => callback(payload)),
   sendPartyChat: (message, user) => ipcRenderer.invoke('send-party-chat', message, user),
   onPartyChatMessage: (callback) => ipcRenderer.on('party-chat-message', (_event, msg) => callback(msg)),
+
+  // Premium Features Helpers
+  getSystemRam: () => ipcRenderer.invoke('get-system-ram'),
+  scanInstanceMods: (instanceId) => ipcRenderer.invoke('scan-instance-mods', instanceId),
+  deleteModFiles: (filePaths) => ipcRenderer.invoke('delete-mod-files', filePaths),
 
   // Auto-Updater
   onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_event, info) => callback(info)),
@@ -80,7 +88,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File watcher
   onInstancesChanged: (callback) => ipcRenderer.on('instances-changed', () => callback()),
 
+  // Instance Stats
+  onInstanceStats: (callback) => ipcRenderer.on('instance-stats', (_event, stats) => callback(stats)),
+
   // Version / Storage management
   listVersions: () => ipcRenderer.invoke('list-versions'),
-  deleteVersion: (versionName) => ipcRenderer.invoke('delete-version', versionName)
+  deleteVersion: (versionName) => ipcRenderer.invoke('delete-version', versionName),
+  getPatchNotes: () => ipcRenderer.invoke('get-patch-notes')
 });

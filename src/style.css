@@ -64,8 +64,9 @@ body:before {
   content: "";
   z-index: -1;
   background:
-    radial-gradient(60% 50% at 20% 80%, #d946ef20 0%, #0000 60%),
-    radial-gradient(50% 50% at 80% 20%, #8b5cf620 0%, #0000 60%),
+    radial-gradient(60% 50% at 20% 80%, #d946ef25 0%, #0000 60%),
+    radial-gradient(50% 50% at 80% 20%, #8b5cf625 0%, #0000 60%),
+    radial-gradient(40% 40% at 50% 50%, #6d28d920 0%, #0000 50%),
     radial-gradient(80% 60%, #0b0914f2 0%, #0000 80%);
   animation: 25s ease-in-out infinite alternate bgDrift;
   position: fixed;
@@ -88,9 +89,12 @@ body:before {
 
 .glass-panel {
   background: var(--surface);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  backdrop-filter: blur(32px) saturate(200%);
   border: 1px solid var(--outline);
+  border-top-color: rgba(255, 255, 255, 0.25);
+  border-left-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   transition:
     border-color 0.3s var(--ease),
     box-shadow 0.3s var(--ease),
@@ -166,6 +170,7 @@ body:before {
   color: var(--text);
   border-color: var(--outline);
   background: #ffffff0d;
+  transform: translateX(4px);
 }
 
 .nav-item.active {
@@ -1567,6 +1572,12 @@ body:before {
   gap: 12px;
 }
 
+.widget-card:hover {
+  border-color: var(--outline-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px #0000004d;
+}
+
 .widget-header {
   display: flex;
   align-items: center;
@@ -1647,6 +1658,26 @@ body:before {
 .swal2-html-container {
   color: var(--text-dim) !important;
   font-family: var(--font-ui) !important;
+}
+
+.swal2-validation-message {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.2) !important;
+  border-radius: var(--r) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  padding: 10px 16px !important;
+  margin-top: 14px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: none !important;
+}
+
+.swal2-validation-message::before {
+  background-color: #ef4444 !important;
+  color: #fff !important;
+  filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.5)) !important;
 }
 
 .swal2-confirm {
@@ -1862,6 +1893,17 @@ body:before {
   user-select: text !important;
 }
 
+/* --- Allow text selection for copyable contents (Logs, Alerts, News) --- */
+#notifications-list,
+#tab-logs,
+.instance-logs,
+#instance-logs,
+#news-content {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  cursor: text;
+}
+
 /* --- Custom Text Selection Highlight --- */
 ::selection {
   background: rgba(168, 85, 247, 0.4);
@@ -1982,3 +2024,185 @@ input[type="range"].form-range::-moz-range-progress {
   transform: translateY(0);
 }
 
+/* --- Toast Notifications --- */
+#toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none; /* Let clicks pass through container */
+}
+
+.toast {
+  width: 320px;
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--outline);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  pointer-events: auto; /* Enable clicks on toast */
+  transform: translateX(120%);
+  transition: transform 0.4s var(--ease), opacity 0.4s var(--ease);
+  position: relative;
+}
+
+.toast.show {
+  transform: translateX(0);
+}
+
+.toast.fade-out {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.toast-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toast-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.toast-message {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+.toast-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.toast-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--outline-hover);
+}
+
+.toast-btn.primary {
+  background: var(--primary-dim);
+  border-color: rgba(217, 70, 239, 0.3);
+  color: var(--primary);
+}
+
+.toast-btn.primary:hover {
+  background: rgba(217, 70, 239, 0.3);
+  border-color: var(--primary);
+}
+
+.toast-btn.danger {
+  background: rgba(255, 75, 75, 0.15);
+  border-color: rgba(255, 75, 75, 0.3);
+  color: var(--error);
+}
+
+.toast-btn.danger:hover {
+  background: rgba(255, 75, 75, 0.3);
+  border-color: var(--error);
+}
+
+.toast-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--primary);
+  width: 100%;
+  transform-origin: left;
+}
+
+.toast.error-toast { background: rgba(255, 60, 60, 0.15) !important; border: 1px solid rgba(255, 60, 60, 0.4) !important; }
+
+/* --- Console Log Syntax Highlighting --- */
+.log-line {
+  margin: 0;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+}
+.log-info {
+  color: var(--text-dim);
+}
+.log-warn {
+  color: #f59e0b; /* warm yellow */
+  font-weight: 500;
+}
+.log-error {
+  color: #f87171; /* soft red */
+  font-weight: 600;
+}
+.log-timestamp {
+  color: rgba(255, 255, 255, 0.2);
+  margin-right: 8px;
+  user-select: none;
+}
+
+/* --- Fluent Radial Hover Glow for Cards --- */
+.instance-card {
+  position: relative;
+  overflow: hidden;
+}
+.instance-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    150px circle at var(--mouse-x, 0px) var(--mouse-y, 0px),
+    rgba(168, 85, 247, 0.12),
+    transparent 80%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.instance-card:hover::before {
+  opacity: 1;
+}
+.instance-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* --- Log Control Bar --- */
+.log-control-bar {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px 12px;
+  border-radius: var(--r);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}

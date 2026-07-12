@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, safeStorage, shell, Notification } = require("electron");
 const path = require("path");
+const pidusage = require("pidusage");
 const { autoUpdater } = require("electron-updater");
 
 // Discord-rpc needs fetch but older node/electron main processes might not have it globally
@@ -98,10 +99,11 @@ var mainWindow;
 var tray = null;
 var trayWindow = null;
 var clientId = "1523332306096357487";
-if (process.defaultApp) {
-    if (process.argv.length >= 2) app.setAsDefaultProtocolClient("discord-1523332306096357487", process.execPath, [require("path").resolve(process.argv[1])]);
-} else app.setAsDefaultProtocolClient("discord-1523332306096357487");
+DiscordRPC.register(clientId);
 var rpc = new DiscordRPC.Client({ transport: "ipc" });
+let rpcReady = false;
+let modHandlingRPC = false;
+
 function resolveIcon() {
     const candidates = [
         // Prefer .ico on Windows for proper taskbar/window icon
@@ -142,6 +144,11 @@ function createWindow() {
     });
     if (process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     else mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        require("electron").shell.openExternal(url);
+        return { action: "deny" };
+    });
 
     mainWindow.once("ready-to-show", () => {
         mainWindow.maximize();
@@ -239,19 +246,29 @@ if (process.defaultApp) {
     app.setAsDefaultProtocolClient("discord-1523332306096357487");
     app.setAsDefaultProtocolClient("crystalline");
 }
-function handleProtocolURL(args) {
-    const urlArg = args.find((arg) => arg.startsWith("discord-1523332306096357487://"));
-    if (urlArg) {
-        console.log("[INVITE] Parsed protocol URL:", urlArg);
-        const secret = urlArg.replace("discord-1523332306096357487://", "").split("/")[0];
-        if (secret) {
-            pendingJoinServer = secret;
-            if (mainWindow) mainWindow.webContents.send("discord-activity-join", secret);
+function handleProtocolURL(urlArg) {
+    if (urlArg.startsWith(`discord-${clientId}://`)) {
+        try {
+            console.log("[PROTOCOL] Full raw URL string:", urlArg);
+            const match = urlArg.match(/secret=([^&]+)/);
+            if (match && match[1]) {
+                const secret = decodeURIComponent(match[1]);
+                console.log("[PROTOCOL] Parsed secret from Regex:", secret);
+                pendingJoinServer = secret;
+                if (mainWindow) {
+                    mainWindow.webContents.send("discord-activity-join", secret);
+                }
+            } else {
+                console.error("[PROTOCOL] Regex failed to find 'secret=' in URL");
+            }
+        } catch (e) {
+            console.error("[PROTOCOL] Parsing protocol URL failed:", e);
         }
     }
 }
 app.on("second-instance", (event, commandLine, workingDirectory) => {
-    handleProtocolURL(commandLine);
+    const urlArg = commandLine.find((arg) => arg.startsWith(`discord-${clientId}://`));
+    if (urlArg) handleProtocolURL(urlArg);
     if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.focus();
@@ -259,7 +276,8 @@ app.on("second-instance", (event, commandLine, workingDirectory) => {
 });
 app.whenReady().then(() => {
     createWindow();
-    handleProtocolURL(process.argv);
+    const urlArg = process.argv.find((arg) => arg.startsWith(`discord-${clientId}://`));
+    if (urlArg) handleProtocolURL(urlArg);
     // Check for updates 3 seconds after launch (only in production)
     if (app.isPackaged) {
         setTimeout(() => autoUpdater.checkForUpdates(), 3000);
@@ -279,7 +297,7 @@ app.whenReady().then(() => {
     // Create custom tray menu window
     trayWindow = new BrowserWindow({
         width: 220,
-        height: 220,
+        height: 260,
         show: false,
         frame: false,
         transparent: false,
@@ -355,7 +373,20 @@ app.whenReady().then(() => {
     });
     rpc.on("ready", () => {
         console.log("Discord RPC ready");
-        if (mainWindow) mainWindow.webContents.send("discord-status", "Connected (Rich Presence Active)");
+        rpcReady = true;
+        if (mainWindow) {
+            mainWindow.webContents.send("discord-status", "Connected (Rich Presence Active)");
+            
+            if (rpc.user) {
+                global.currentDiscordUserId = rpc.user.id;
+                mainWindow.webContents.send("discord-local-user", {
+                    id: rpc.user.id,
+                    username: rpc.user.username,
+                    discriminator: rpc.user.discriminator,
+                    avatar: rpc.user.avatar
+                });
+            }
+        }
         rpc.setActivity({
             details: "In Launcher",
             state: "Preparing for an adventure",
@@ -364,13 +395,18 @@ app.whenReady().then(() => {
             largeImageText: "Crystalline",
             instance: false
         });
-        rpc.subscribe("ACTIVITY_JOIN", ({ secret }) => {
+        
+        rpc.on("ACTIVITY_JOIN", (args) => {
+            const secret = args.secret || args; 
             console.log("[INVITE] Received ACTIVITY_JOIN, secret:", secret);
             pendingJoinServer = secret;
             if (mainWindow) mainWindow.webContents.send("discord-activity-join", secret);
-        }).catch(e => console.log("[RPC] ACTIVITY_JOIN subscribe failed:", e.message));
-        // When a friend clicks "Join" in Discord, ask the host for approval
-        rpc.subscribe("ACTIVITY_JOIN_REQUEST", (user) => {
+        });
+
+        rpc.subscribe("ACTIVITY_JOIN").catch(e => console.log("[RPC] ACTIVITY_JOIN subscribe failed:", e.message));
+
+        rpc.on("ACTIVITY_JOIN_REQUEST", (args) => {
+            const user = args.user || args;
             console.log("[INVITE] ACTIVITY_JOIN_REQUEST from:", user.username);
             if (mainWindow) mainWindow.webContents.send("discord-join-request", {
                 id: user.id,
@@ -378,21 +414,13 @@ app.whenReady().then(() => {
                 discriminator: user.discriminator,
                 avatar: user.avatar
             });
-        }).catch(e => console.log("[RPC] ACTIVITY_JOIN_REQUEST subscribe failed:", e.message));
-    });
-    // Request rpc + identify via Discord Desktop native auth flow (one-time popup in Discord)
-    // This is required for ACTIVITY_JOIN subscribe to work — Discord rejects it without the rpc scope
-    rpc.login({
-        clientId,
-        scopes: ["rpc", "identify"],
-        redirectUri: `http://127.0.0.1:34321/callback`
-    }).catch((err) => {
-        console.error("Discord RPC login failed:", err.message);
-        // Fallback: try without scopes (Rich Presence still works, but ACTIVITY_JOIN subscribe may fail)
-        rpc.login({ clientId }).catch((err2) => {
-            console.error("Discord RPC login fallback failed:", err2.message);
-            if (mainWindow) mainWindow.webContents.send("discord-status", "Connection failed");
         });
+        
+        rpc.subscribe("ACTIVITY_JOIN_REQUEST").catch(e => console.log("[RPC] ACTIVITY_JOIN_REQUEST subscribe failed:", e.message));
+    });
+    rpc.login({ clientId }).catch((err) => {
+        console.error("Discord RPC login fallback failed:", err.message);
+        if (mainWindow) mainWindow.webContents.send("discord-status", "Connection failed");
     });
 });
 app.on("window-all-closed", function () {
@@ -407,9 +435,6 @@ ipcMain.handle("discord-login", async () => {
         let resolved = false;
         const server = http.createServer((req, res) => {
             if (req.url.startsWith("/callback")) {
-                // Step 1: Browser lands here after Discord redirect.
-                // Token is in #hash fragment — JS reads it and redirects to /authorize?...
-                // so Node.js can read it directly from req.url (no fragile POST body).
                 res.writeHead(200, { "Content-Type": "text/html" });
                 res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#080B10;color:#fff">
           <h2>Logging into Crystalline...</h2>
@@ -425,14 +450,11 @@ ipcMain.handle("discord-login", async () => {
           </script>
           </body></html>`);
             } else if (req.url.startsWith("/authorize")) {
-                // Step 2: Read token directly from URL query string
                 const rawQuery = req.url.split("?")[1] || "";
                 const urlParams = new URLSearchParams(rawQuery);
                 const accessToken = urlParams.get("access_token");
                 const discordError = urlParams.get("error");
                 const discordErrorDesc = urlParams.get("error_description");
-
-                console.log("[DISCORD LOGIN] /authorize received. access_token present:", !!accessToken, "| error:", discordError, "| raw query snippet:", rawQuery.substring(0, 80));
 
                 res.writeHead(200, { "Content-Type": "text/html" });
                 if (accessToken) {
@@ -452,30 +474,16 @@ ipcMain.handle("discord-login", async () => {
 
                 if (!accessToken) {
                     server.close();
-                    const errMsg = discordError
-                        ? `Discord denied access: ${discordError}. Ensure you click "Authorize" in the browser.`
-                        : "No access token returned. Try again.";
-                    resolve({ success: false, error: errMsg });
+                    resolve({ success: false, error: "No access token returned." });
                     return;
                 }
 
                 (async () => {
                     try {
                         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
-                        let friends = [];
-                        // Use rpc.login with rpc scope via Discord desktop native flow (no web OAuth needed)
-                        // This grants the rpc scope through Discord's own popup, enabling ACTIVITY_JOIN subscribe
-                        try {
-                            await rpc.login({ clientId, accessToken, scopes: ["rpc", "identify"] });
-                            console.log("[RPC] rpc.login with rpc scope succeeded");
-                            const rpcFriends = await rpc.getRelationships();
-                            if (Array.isArray(rpcFriends)) friends = rpcFriends;
-                        } catch (rpcErr) {
-                            console.log("[RPC] rpc.login with scope failed, RPC works via startup login:", rpcErr.message);
-                        }
                         await writeEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"), { accessToken }).catch(() => { });
                         server.close();
-                        resolve({ success: true, user: userRes, friends });
+                        resolve({ success: true, user: userRes });
                     } catch (err) {
                         server.close();
                         resolve({ success: false, error: err.message });
@@ -487,12 +495,10 @@ ipcMain.handle("discord-login", async () => {
         server.on("error", (err) => {
             if (!resolved) {
                 resolved = true;
-                resolve({ success: false, error: "Could not start local server for OAuth callback on port 34321. Is it in use?" });
+                resolve({ success: false, error: "Could not start local server." });
             }
         });
         server.listen(PORT, "127.0.0.1", () => {
-            // Only "identify" scope — rpc/relationships.read require Discord Developer Portal approval
-            // Rich Presence works via rpc.login() on startup (local IPC, no OAuth scope needed)
             const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${PORT}/callback`)}&response_type=token&scope=identify`;
             shell.openExternal(authUrl);
         });
@@ -500,7 +506,7 @@ ipcMain.handle("discord-login", async () => {
             if (!resolved) {
                 resolved = true;
                 server.close();
-                resolve({ success: false, error: "Discord login timed out after 2 minutes" });
+                resolve({ success: false, error: "Login timed out" });
             }
         }, 12e4);
     });
@@ -538,12 +544,15 @@ ipcMain.handle("msmc-login", async () => {
                     loginWindow.hide();
                 } catch (e) { }
                 try {
-                    const mcAuth = await httpsPost("api.minecraftservices.com", "/authentication/login_with_xbox", { identityToken: await (await authManager.login(code)).xAuth("rp://api.minecraftservices.com/") });
+                    const xboxManager = await authManager.login(code);
+                    const xstsToken = await xboxManager.xAuth("rp://api.minecraftservices.com/");
+                    const mcAuth = await httpsPost("api.minecraftservices.com", "/authentication/login_with_xbox", { identityToken: xstsToken });
                     if (!mcAuth.access_token) throw new Error("No access_token in login_with_xbox response");
                     const profile = await httpsGet("api.minecraftservices.com", "/minecraft/profile", { Authorization: `Bearer ${mcAuth.access_token}` });
                     if (!profile.name) throw new Error("No profile name returned: " + JSON.stringify(profile));
                     mcAccount = {
                         access_token: mcAuth.access_token,
+                        refresh_token: xboxManager.msToken.refresh_token,
                         client_token: require("crypto").randomUUID(),
                         uuid: profile.id,
                         name: profile.name,
@@ -661,36 +670,15 @@ ipcMain.handle("check-discord-auth", async () => {
         const { accessToken } = await readEncryptedFile(path.join(app.getPath("userData"), "discord_auth.json"));
         if (!accessToken) return { success: false };
 
-        // Always fetch user info first — this works with just "identify" scope
         const userRes = await httpsGet("discord.com", "/api/v10/users/@me", { Authorization: `Bearer ${accessToken}` });
-
-        const withTimeout = (prom, ms) => Promise.race([prom, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-        let friendsRes = [];
-
-        // Try to get friends via RPC (requires Discord desktop to be running and rpc.login to have succeeded)
-        try {
-            // First try without re-authenticating (RPC already connected from startup)
-            friendsRes = await withTimeout(rpc.getRelationships(), 2e3);
-        } catch (e0) {
-            try {
-                // Try authenticating with token (only works if token has rpc scope)
-                await withTimeout(rpc.authenticate(accessToken), 3e3);
-                friendsRes = await withTimeout(rpc.getRelationships(), 2e3);
-            } catch (e) {
-                // RPC auth failed — token lacks rpc scope or Discord desktop not running
-                // This is expected — return success with empty friends list
-                console.log("RPC friends unavailable (no rpc scope or Discord not running):", e.message);
-            }
-        }
 
         if (mainWindow) mainWindow.webContents.send("discord-status", "Connected (Rich Presence Active)");
         return {
             success: true,
             user: userRes,
-            friends: Array.isArray(friendsRes) ? friendsRes : []
+            friends: []
         };
-    } catch (e) {
-        console.error("Discord check auth failed:", e.message);
+    } catch (err) {
         return { success: false };
     }
 });
@@ -885,55 +873,71 @@ ipcMain.handle("download-modpack-urls", async (event, urls, instanceId) => {
 
 
 ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loader, loaderVersion, instanceId, details, state, joinSecret, partyId, partySize, partyMax }) => {
-    try {
-        const activity = {
-            details: details || "Playing Crystalline",
-            state: state || (serverIp ? `On ${serverIp}` : `Version ${version || ""}`),
-            startTimestamp: /* @__PURE__ */ new Date(),
-            largeImageKey: "icon_large",
-            largeImageText: "Crystalline",
-            instance: !!serverIp
-        };
-        if (serverIp) {
-            let modpackSegment = instanceId === "default" ? "official" : "";
-            if (instanceId && instanceId !== "default") {
-                const bbKey = await generateModpackExport(instanceId, version, loader, loaderVersion);
-                if (bbKey) modpackSegment = "bb:" + bbKey;
-            }
-            // If they are in a party, we broadcast the instance start to the party!
-            if (partyClient && partyState && partyState.groupId) {
-                partyClient.publish(`crystalline/party/${partyState.groupId}`, encryptPayload({
-                    type: "start_instance",
-                    serverIp, version, loader, loaderVersion, modpackSegment
-                }, partyState.aesKey));
+    if (rpc && !modHandlingRPC) {
+        try {
+            const activity = {
+                details: details || "Playing Crystalline",
+                state: state || (serverIp ? `On ${serverIp}` : `Version ${version || ""}`),
+                startTimestamp: /* @__PURE__ */ new Date(),
+                largeImageKey: "icon_large",
+                largeImageText: "Crystalline",
+                instance: !!serverIp
+            };
+            if (serverIp) {
+                let modpackSegment = instanceId === "default" ? "official" : "";
+                if (instanceId && instanceId !== "default") {
+                    const bbKey = await generateModpackExport(instanceId, version, loader, loaderVersion);
+                    if (bbKey) modpackSegment = "bb:" + bbKey;
+                }
+                // If they are in a party, we broadcast the instance start to the party!
+                if (partyClient && partyState && partyState.groupId) {
+                    partyClient.publish(`crystalline/party/${partyState.groupId}`, encryptPayload({
+                        type: "start_instance",
+                        serverIp, version, loader, loaderVersion, modpackSegment
+                    }, partyState.aesKey));
 
-                // Preserve party secret for discord presence instead of replacing it
-                activity.joinSecret = `group:${partyState.groupId}:${partyState.aesKey}`;
-                activity.partyId = partyState.groupId;
-                activity.partySize = partyState.members.length || 1;
-                activity.partyMax = 10;
-            } else {
-                activity.joinSecret = `${serverIp}|${version || ""}|${loader || ""}|${loaderVersion || ""}|${modpackSegment}`;
-                activity.partyId = `crystalline-${serverIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
-                activity.partySize = 1;
-                activity.partyMax = 20;
+                    // Also save it locally to our party state so late-joiners can see the Join button
+                    const myId = mainWindow ? global.currentDiscordUserId : null;
+                    if (myId) {
+                        const memberIndex = partyState.members.findIndex(m => m.id === myId);
+                        if (memberIndex !== -1) {
+                            partyState.members[memberIndex].serverIp = serverIp;
+                            partyState.members[memberIndex].version = version;
+                            partyState.members[memberIndex].loader = loader;
+                            partyState.members[memberIndex].modpackSegment = modpackSegment;
+                            partyState.members[memberIndex].currentStatus = `Playing Minecraft ${version || ''}`;
+                            if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+                        }
+                    }
+
+                    // Preserve party secret for discord presence instead of replacing it
+                    activity.joinSecret = `group:${partyState.groupId}:${partyState.aesKey}`;
+                    activity.partyId = partyState.groupId;
+                    activity.partySize = partyState.members.length || 1;
+                    activity.partyMax = 10;
+                } else {
+                    activity.joinSecret = `${serverIp}|${version || ""}|${loader || ""}|${loaderVersion || ""}|${modpackSegment}`;
+                    activity.partyId = `crystalline-${serverIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
+                    activity.partySize = 1;
+                    activity.partyMax = 20;
+                }
+            } else if (joinSecret && partyId) {
+                // Party data passed directly (e.g. idle in party, waiting for friends)
+                activity.joinSecret = joinSecret;
+                activity.partyId = partyId;
+                activity.partySize = partySize || 1;
+                activity.partyMax = partyMax || 10;
             }
-        } else if (joinSecret && partyId) {
-            // Party data passed directly (e.g. idle in party, waiting for friends)
-            activity.joinSecret = joinSecret;
-            activity.partyId = partyId;
-            activity.partySize = partySize || 1;
-            activity.partyMax = partyMax || 10;
+
+            rpc.setActivity(activity);
+            return { success: true };
+        } catch (err) {
+            console.error("[PRESENCE] update-discord-presence failed:", err.message);
+            return {
+                success: false,
+                error: err.message
+            };
         }
-
-        rpc.setActivity(activity);
-        return { success: true };
-    } catch (err) {
-        console.error("[PRESENCE] update-discord-presence failed:", err.message);
-        return {
-            success: false,
-            error: err.message
-        };
     }
 });
 ipcMain.handle("send-discord-invite", async (event, userId) => {
@@ -962,7 +966,7 @@ ipcMain.handle("send-discord-invite", async (event, userId) => {
 });
 ipcMain.handle("approve-join-request", async (event, userId) => {
     try {
-        await rpc.sendJoinRequest({ id: userId });
+        await rpc.sendJoinInvite({ id: userId });
         return { success: true };
     } catch (err) {
         if (err.message === "Unknown Error" || err.code === 1000) return { success: true };
@@ -1021,7 +1025,7 @@ function fetchJson(url) {
         req.end();
     });
 }
-function fetchBuffer(url, label = "Downloading") {
+function fetchBuffer(url, label = "Downloading", sendProgress = true) {
     return new Promise((resolve, reject) => {
         const { net } = require("electron");
         const req = net.request(url);
@@ -1044,7 +1048,7 @@ function fetchBuffer(url, label = "Downloading") {
                     chunks.push(chunk);
                     downloaded += chunk.length;
                     const now = Date.now();
-                    if (now - lastReport > 250 && typeof mainWindow !== "undefined" && mainWindow) {
+                    if (sendProgress && now - lastReport > 250 && typeof mainWindow !== "undefined" && mainWindow) {
                         const mb = (downloaded / 1024 / 1024).toFixed(1);
                         const totalMb = total ? (total / 1024 / 1024).toFixed(1) : "?";
                         mainWindow.webContents.send("launch-status", `${label} (${mb}MB / ${totalMb}MB)`);
@@ -1109,25 +1113,53 @@ async function ensureJava(javaVersion) {
             else resolve();
         });
     });
-    await Promise.race([extractPromise, new Promise((_, rej) => setTimeout(() => rej(/* @__PURE__ */ new Error("Extraction timed out after 5 minutes")), 3e5))]);
-    await fs.unlink(zipPath).catch(() => { });
+    await Promise.race([extractPromise, new Promise((_, rej) => setTimeout(() => rej(new Error("Extraction timed out after 5 minutes")), 300000))]);
+    await fs.unlink(zipPath).catch(() => {});
     existing = await findJava(javaDir);
     if (!existing) throw new Error("java.exe not found after extraction");
     return existing;
 }
-async function setupFabric(rootPath, mcVersion) {
-    const versionsDir = path.join(sharedPath, "versions", `fabric-${mcVersion}`);
+
+async function setupFabric(rootPath, mcVersion, loaderVersion) {
+    let selectedVersion = loaderVersion;
+    if (!selectedVersion) {
+        mainWindow.webContents.send("launch-status", "Fetching Fabric Loader...");
+        const loaders = await fetchJson(`https://meta.fabricmc.net/v2/versions/loader/${mcVersion}`);
+        if (!loaders || loaders.length === 0) throw new Error("No Fabric loader found for this version");
+        selectedVersion = loaders[0].loader.version;
+    }
+    const versionId = `fabric-${mcVersion}-${selectedVersion}`;
+    const versionsDir = path.join(sharedPath, "versions", versionId);
     await fs.mkdir(versionsDir, { recursive: true });
-    const jsonPath = path.join(versionsDir, `fabric-${mcVersion}.json`);
-    if (require("fs").existsSync(jsonPath)) return `fabric-${mcVersion}`;
-    mainWindow.webContents.send("launch-status", "Fetching Fabric Loader...");
-    const loaders = await fetchJson(`https://meta.fabricmc.net/v2/versions/loader/${mcVersion}`);
-    if (!loaders || loaders.length === 0) throw new Error("No Fabric loader found for this version");
-    const loaderVersion = loaders[0].loader.version;
-    const profileJson = await fetchJson(`https://meta.fabricmc.net/v2/versions/loader/${mcVersion}/${loaderVersion}/profile/json`);
-    profileJson.id = `fabric-${mcVersion}`;
+    const jsonPath = path.join(versionsDir, `${versionId}.json`);
+    if (require("fs").existsSync(jsonPath)) return versionId;
+
+    mainWindow.webContents.send("launch-status", "Downloading Fabric Profile...");
+    const profileJson = await fetchJson(`https://meta.fabricmc.net/v2/versions/loader/${mcVersion}/${selectedVersion}/profile/json`);
+    profileJson.id = versionId;
     await fs.writeFile(jsonPath, JSON.stringify(profileJson, null, 2));
-    return `fabric-${mcVersion}`;
+    return versionId;
+}
+
+async function setupQuilt(rootPath, mcVersion, loaderVersion) {
+    let selectedVersion = loaderVersion;
+    if (!selectedVersion) {
+        mainWindow.webContents.send("launch-status", "Fetching Quilt Loader...");
+        const loaders = await fetchJson(`https://meta.quiltmc.org/v3/versions/loader/${mcVersion}`);
+        if (!loaders || loaders.length === 0) throw new Error("No Quilt loader found for this version");
+        selectedVersion = loaders[0].loader.version;
+    }
+    const versionId = `quilt-${mcVersion}-${selectedVersion}`;
+    const versionsDir = path.join(sharedPath, "versions", versionId);
+    await fs.mkdir(versionsDir, { recursive: true });
+    const jsonPath = path.join(versionsDir, `${versionId}.json`);
+    if (require("fs").existsSync(jsonPath)) return versionId;
+
+    mainWindow.webContents.send("launch-status", "Downloading Quilt Profile...");
+    const profileJson = await fetchJson(`https://meta.quiltmc.org/v3/versions/loader/${mcVersion}/${selectedVersion}/profile/json`);
+    profileJson.id = versionId;
+    await fs.writeFile(jsonPath, JSON.stringify(profileJson, null, 2));
+    return versionId;
 }
 async function setupForge(rootPath, mcVersion, loaderVersion, javaPath) {
     let version = loaderVersion;
@@ -1180,7 +1212,9 @@ async function setupForge(rootPath, mcVersion, loaderVersion, javaPath) {
                 tempInstaller,
                 "--installClient",
                 rootPath
-            ]);
+            ], {
+                cwd: require("os").tmpdir()
+            });
             let errorOutput = "";
             child.stderr.on("data", (d) => {
                 errorOutput += d.toString();
@@ -1210,6 +1244,10 @@ async function setupForge(rootPath, mcVersion, loaderVersion, javaPath) {
     } catch (err) {
         console.error("[FORGE] Native install failed:", err);
         throw new Error("Forge installation failed: " + err.message);
+    } finally {
+        const logPath = tempInstaller + ".log";
+        await require("fs").promises.unlink(logPath).catch(() => {});
+        await require("fs").promises.unlink(tempInstaller).catch(() => {});
     }
 }
 async function setupLegacyForge(rootPath, mcVersion, forgeVersion, installerPath) {
@@ -1285,7 +1323,9 @@ async function setupNeoForge(rootPath, mcVersion, loaderVersion, javaPath) {
                     installerPath,
                     "--installClient",
                     sharedPath
-                ]);
+                ], {
+                    cwd: require("os").tmpdir()
+                });
                 let errorOutput = "";
                 child.stderr.on("data", (d) => {
                     errorOutput += d.toString();
@@ -1306,6 +1346,10 @@ async function setupNeoForge(rootPath, mcVersion, loaderVersion, javaPath) {
         } catch (err) {
             console.error("[NEOFORGE] Native install failed:", err);
             throw new Error("NeoForge installation failed: " + err.message);
+        } finally {
+            const logPath = path.join(require("os").tmpdir(), installerName + ".log");
+            await require("fs").promises.unlink(logPath).catch(() => {});
+            await require("fs").promises.unlink(installerPath).catch(() => {});
         }
     }
     return customVersionName;
@@ -1356,16 +1400,20 @@ async function launchXMCL({ rootPath, customVersionName, mcAccount, javaPath, ra
                 maxConcurrency: 16
             });
             console.log(`[DEBUG] Task instantiated, startAndWait...`);
+            let lastUpdate = 0;
             await task.startAndWait({
                 onUpdate: (childTask, chunkSize) => {
-                    if (childTask.total > 0) {
-                        const percentage = Math.round(childTask.progress / childTask.total * 100);
-                        const isDownloading = chunkSize > 0;
-                        const label = isDownloading
-                            ? `Downloading missing files... ${percentage}%`
-                            : `Verifying files... ${percentage}%`;
-                        mainWindow.webContents.send("launch-status", label);
-                    } else mainWindow.webContents.send("launch-status", `Verifying files... (${childTask.progress} checked)`);
+                    const now = Date.now();
+                    if (now - lastUpdate > 200 || childTask.progress === childTask.total) {
+                        lastUpdate = now;
+                        if (childTask.total > 0) {
+                            const percentage = Math.round(childTask.progress / childTask.total * 100);
+                            const label = `Verifying & Downloading assets... ${percentage}%`;
+                            mainWindow.webContents.send("launch-status", label);
+                        } else {
+                            mainWindow.webContents.send("launch-status", `Verifying files... (${childTask.progress} checked)`);
+                        }
+                    }
                 },
                 onFailed: (childTask, error) => {
                     console.log(`[XMCL TASK] Failed: ${childTask.name}`, error.message);
@@ -1447,6 +1495,7 @@ async function launchXMCL({ rootPath, customVersionName, mcAccount, javaPath, ra
     return await xmclLaunch(launchOptions);
 }
 var runningInstances = /* @__PURE__ */ new Set();
+var runningInstanceProcs = new Map();
 var pendingJoinServer = null;
 global.activeTasks = 0;
 
@@ -1578,6 +1627,7 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             error: `The instance "${targetId}" is already running!`
         };
         runningInstances.add(targetId);
+        if (typeof proc !== 'undefined') runningInstanceProcs.set(targetId, proc);
         const settingsPath = path.join(app.getPath("userData"), "settings.json");
         let userSettings = {
             ram: "4G",
@@ -1620,22 +1670,27 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             console.log("[DEBUG] ensureJava complete, path:", javaPath);
         }
         const ramMb = parseInt((userSettings.ram || "4G").replace(/[Gg]/, "")) * 1024;
+
         const setRunningState = () => {
             if (mainWindow) mainWindow.webContents.send("launch-status", "Game is running...");
             try {
-                rpc.setActivity({
-                    details: "Playing Crystalline",
-                    state: "Version " + targetVersion,
-                    startTimestamp: /* @__PURE__ */ new Date(),
-                    largeImageKey: "icon_large",
-                    largeImageText: "Crystalline",
-                    instance: true
-                });
+                if (!modHandlingRPC) {
+                    rpc.setActivity({
+                        details: "Playing Crystalline",
+                        state: "Version " + targetVersion,
+                        startTimestamp: /* @__PURE__ */ new Date(),
+                        largeImageKey: "icon_large",
+                        largeImageText: "Crystalline",
+                        instance: true
+                    });
+                }
             } catch (e) { }
         };
         let lastErrorLog = "";
         const setClosedState = (code) => {
+            modHandlingRPC = false;
             runningInstances.delete(targetId);
+            runningInstanceProcs.delete(targetId);
             if (code === 0 || code === null || code === undefined) {
                 if (mainWindow) mainWindow.webContents.send("launch-status", "Closed");
             } else {
@@ -1746,9 +1801,11 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             proc.on("close", setClosedState);
             proc.on("error", (err) => {
                 runningInstances.delete(targetId);
+                runningInstanceProcs.delete(targetId);
                 if (mainWindow) mainWindow.webContents.send("launch-status", `Launch Error: ${err.message}`);
             });
             runningInstances.add(targetId);
+            runningInstanceProcs.set(targetId, proc);
             setRunningState();
             return { success: true };
         }
@@ -1783,9 +1840,11 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             proc.on("close", setClosedState);
             proc.on("error", (err) => {
                 runningInstances.delete(targetId);
+                runningInstanceProcs.delete(targetId);
                 if (mainWindow) mainWindow.webContents.send("launch-status", `Launch Error: ${err.message}`);
             });
             runningInstances.add(targetId);
+            runningInstanceProcs.set(targetId, proc);
             setRunningState();
             return { success: true };
         }
@@ -1821,9 +1880,51 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             proc.on("close", setClosedState);
             proc.on("error", (err) => {
                 runningInstances.delete(targetId);
+                runningInstanceProcs.delete(targetId);
                 if (mainWindow) mainWindow.webContents.send("launch-status", `Launch Error: ${err.message}`);
             });
             runningInstances.add(targetId);
+            runningInstanceProcs.set(targetId, proc);
+            setRunningState();
+            return { success: true };
+        }
+
+        if (targetLoader === "quilt") {
+            console.log("[LAUNCH] Setting up Quilt...");
+            const customVersionName = await setupQuilt(rootPath, targetVersion, targetLoaderVersion, javaPath);
+            console.log("[DEBUG] setupQuilt complete, result:", customVersionName);
+            console.log("[DEBUG] awaiting launchXMCL");
+            const proc = await launchXMCL({
+                rootPath,
+                customVersionName,
+                mcAccount,
+                javaPath,
+                ram: ramMb,
+                targetId,
+                targetVersion
+            });
+            console.log("[DEBUG] launchXMCL complete");
+            proc.stdout.on("data", (d) => {
+                const line = d.toString();
+                console.log(`[XMCL] ${line.trim()}`);
+                if (mainWindow) mainWindow.webContents.send("mc-log", line);
+            });
+            proc.stderr.on("data", (d) => {
+                const line = d.toString();
+                lastErrorLog += line;
+                if (lastErrorLog.length > 3000) lastErrorLog = lastErrorLog.substring(lastErrorLog.length - 3000);
+                console.error(`[XMCL ERR] ${line.trim()}`);
+                if (mainWindow) mainWindow.webContents.send("mc-log", line);
+            });
+            applyOptionsOverride(userSettings, rootPath, proc);
+            proc.on("close", setClosedState);
+            proc.on("error", (err) => {
+                runningInstances.delete(targetId);
+                runningInstanceProcs.delete(targetId);
+                if (mainWindow) mainWindow.webContents.send("launch-status", `Launch Error: ${err.message}`);
+            });
+            runningInstances.add(targetId);
+            runningInstanceProcs.set(targetId, proc);
             setRunningState();
             return { success: true };
         }
@@ -1857,9 +1958,11 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             proc.on("close", setClosedState);
             proc.on("error", (err) => {
                 runningInstances.delete(targetId);
+                runningInstanceProcs.delete(targetId);
                 if (mainWindow) mainWindow.webContents.send("launch-status", `Launch Error: ${err.message}`);
             });
             runningInstances.add(targetId);
+            runningInstanceProcs.set(targetId, proc);
             setRunningState();
             return { success: true };
         }
@@ -2086,6 +2189,15 @@ ipcMain.handle("show-settings", async () => {
     if (trayWindow) trayWindow.hide();
 });
 
+ipcMain.handle("show-friends", async () => {
+    if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send("navigate-to", "friends");
+    }
+    if (trayWindow) trayWindow.hide();
+});
+
 ipcMain.handle("repair-instance", async (event, instanceId) => {
     try {
         const libsDir = path.join(sharedPath, "libraries");
@@ -2142,6 +2254,23 @@ ipcMain.handle("get-instances", async () => {
         };
     }
 });
+
+ipcMain.handle("get-patch-notes", async () => {
+    const fsPromises = require("fs").promises;
+    const candidates = [
+        path.join(__dirname, "patch_notes.md"),
+        path.join(__dirname, "../electron/patch_notes.md"),
+        path.join(app.getAppPath(), "electron", "patch_notes.md"),
+    ];
+    for (const p of candidates) {
+        try {
+            const md = await fsPromises.readFile(p, "utf-8");
+            return { success: true, markdown: md };
+        } catch (e) {}
+    }
+    return { success: false, error: "Patch notes not found" };
+});
+
 ipcMain.handle("open-instance-folder", async (event, instanceId) => {
     const instancesPath = path.join(app.getPath("userData"), "Crystalline_Instances");
     const instancePath = path.join(instancesPath, instanceId);
@@ -2231,6 +2360,7 @@ ipcMain.handle("get-loader-versions", async (event, mcVersion, loader) => {
     try {
         if (loader === "neoforge") {
             const res = await fetch(`https://bmclapi2.bangbang93.com/neoforge/list/${mcVersion}`);
+            if (res.status === 404 || res.status === 400) return { success: true, versions: [] };
             if (!res.ok) throw new Error("API error");
             return {
                 success: true,
@@ -2238,6 +2368,7 @@ ipcMain.handle("get-loader-versions", async (event, mcVersion, loader) => {
             };
         } else if (loader === "forge") {
             const res = await fetch(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcVersion}`);
+            if (res.status === 404 || res.status === 400) return { success: true, versions: [] };
             if (!res.ok) throw new Error("API error");
             return {
                 success: true,
@@ -2245,6 +2376,15 @@ ipcMain.handle("get-loader-versions", async (event, mcVersion, loader) => {
             };
         } else if (loader === "fabric") {
             const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${mcVersion}`);
+            if (res.status === 404 || res.status === 400) return { success: true, versions: [] };
+            if (!res.ok) throw new Error("API error");
+            return {
+                success: true,
+                versions: (await res.json()).map((v) => v.loader.version)
+            };
+        } else if (loader === "quilt") {
+            const res = await fetch(`https://meta.quiltmc.org/v3/versions/loader/${mcVersion}`);
+            if (res.status === 404 || res.status === 400) return { success: true, versions: [] };
             if (!res.ok) throw new Error("API error");
             return {
                 success: true,
@@ -2731,7 +2871,7 @@ ipcMain.handle("fetch-player-skin", async (event, username, forceRefresh = false
             success: false,
             error: "Player has no custom skin."
         };
-        const skinBuffer = await fetchBuffer(skinUrl, "Downloading Skin");
+        const skinBuffer = await fetchBuffer(skinUrl, "Downloading Skin", false);
         const skinsDir = path.join(app.getPath("userData"), "skins");
         await fs.mkdir(skinsDir, { recursive: true });
         const fileName = `${username}.png`;
@@ -2887,6 +3027,7 @@ var modBridgeServer = http.createServer(async (req, res) => {
             });
             res.writeHead(200);
             res.end(JSON.stringify({ success: true }));
+            modHandlingRPC = true;
         } catch (e) {
             res.writeHead(500);
             res.end(JSON.stringify({
@@ -2926,6 +3067,7 @@ var modBridgeServer = http.createServer(async (req, res) => {
             }
             res.writeHead(200);
             res.end(JSON.stringify({ success: true }));
+            modHandlingRPC = true;
         } catch (e) {
             res.writeHead(500);
             res.end(JSON.stringify({
@@ -2951,6 +3093,7 @@ var modBridgeServer = http.createServer(async (req, res) => {
             }
             res.writeHead(200);
             res.end(JSON.stringify({ success: true }));
+            modHandlingRPC = false;
         } catch (e) {
             res.writeHead(500);
             res.end(JSON.stringify({ success: false, error: e.message }));
@@ -3088,14 +3231,31 @@ ipcMain.handle("download-curseforge-file", async (event, url, instanceId, folder
 // PARTY SYSTEM HANDLERS (MQTT)
 // ==========================================
 
-ipcMain.handle("create-party", async (event) => {
+ipcMain.handle("update-party-status", async (event, statusText, userId, serverIp, version, loader, modpackSegment) => {
+    if (partyClient && partyState.groupId) {
+        partyClient.publish(`crystalline/party/${partyState.groupId}`, encryptPayload({
+            type: "status_update",
+            user_id: userId,
+            status: statusText,
+            serverIp: serverIp,
+            version: version,
+            loader: loader,
+            modpackSegment: modpackSegment,
+            timestamp: Date.now()
+        }, partyState.aesKey));
+        return true;
+    }
+    return false;
+});
+
+ipcMain.handle("create-party", async (event, user) => {
     if (partyClient) {
         partyClient.end();
         partyClient = null;
     }
     const groupId = "grp-" + crypto.randomUUID();
     const aesKey = crypto.randomBytes(32).toString("hex");
-    partyState = { groupId, aesKey, members: [] };
+    partyState = { groupId, aesKey, members: user ? [user] : [] };
 
     // Connect to MQTT
     partyClient = mqtt.connect(mqttBrokerUrl);
@@ -3120,11 +3280,24 @@ ipcMain.handle("create-party", async (event) => {
         } else if (payload.type === "sync") {
             partyState.members = payload.members;
             if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+        } else if (payload.type === "leave") {
+            partyState.members = partyState.members.filter(m => m.id !== payload.user_id);
+            if (mainWindow) mainWindow.webContents.send("party-update", partyState);
         } else if (payload.type === "start_instance") {
             // Someone in the party started an instance!
             if (mainWindow) mainWindow.webContents.send("party-start-instance", payload);
         } else if (payload.type === "chat") {
             if (mainWindow) mainWindow.webContents.send("party-chat-message", payload);
+        } else if (payload.type === "status_update") {
+            const memberIndex = partyState.members.findIndex(m => m.id === payload.user_id);
+            if (memberIndex !== -1) {
+                partyState.members[memberIndex].currentStatus = payload.status;
+                partyState.members[memberIndex].serverIp = payload.serverIp;
+                partyState.members[memberIndex].version = payload.version;
+                partyState.members[memberIndex].loader = payload.loader;
+                partyState.members[memberIndex].modpackSegment = payload.modpackSegment;
+                if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+            }
         }
     });
 
@@ -3172,10 +3345,23 @@ ipcMain.handle("join-party", async (event, groupId, aesKey, user) => {
                         partyState.members.push(payload.user);
                         if (mainWindow) mainWindow.webContents.send("party-update", partyState);
                     }
+                } else if (payload.type === "leave") {
+                    partyState.members = partyState.members.filter(m => m.id !== payload.user_id);
+                    if (mainWindow) mainWindow.webContents.send("party-update", partyState);
                 } else if (payload.type === "start_instance") {
                     if (mainWindow) mainWindow.webContents.send("party-start-instance", payload);
                 } else if (payload.type === "chat") {
                     if (mainWindow) mainWindow.webContents.send("party-chat-message", payload);
+                } else if (payload.type === "status_update") {
+                    const memberIndex = partyState.members.findIndex(m => m.id === payload.user_id);
+                    if (memberIndex !== -1) {
+                        partyState.members[memberIndex].currentStatus = payload.status;
+                        partyState.members[memberIndex].serverIp = payload.serverIp;
+                        partyState.members[memberIndex].version = payload.version;
+                        partyState.members[memberIndex].loader = payload.loader;
+                        partyState.members[memberIndex].modpackSegment = payload.modpackSegment;
+                        if (mainWindow) mainWindow.webContents.send("party-update", partyState);
+                    }
                 }
             });
 
@@ -3184,8 +3370,13 @@ ipcMain.handle("join-party", async (event, groupId, aesKey, user) => {
     });
 });
 
-ipcMain.handle("leave-party", async (event) => {
+ipcMain.handle("leave-party", async (event, userId) => {
     if (partyClient) {
+        if (partyState.groupId && userId) {
+            partyClient.publish(`crystalline/party/${partyState.groupId}`, encryptPayload({
+                type: "leave", user_id: userId
+            }, partyState.aesKey));
+        }
         partyClient.end();
         partyClient = null;
     }
@@ -3215,4 +3406,91 @@ ipcMain.handle("send-party-chat", async (event, message, user) => {
         return true;
     }
     return false;
+});
+
+// Start stats interval
+setInterval(async () => {
+    if (!mainWindow) return;
+    for (const [targetId, proc] of runningInstanceProcs.entries()) {
+        if (proc && proc.pid) {
+            try {
+                const stats = await pidusage(proc.pid);
+                const numCores = require('os').cpus().length || 1;
+                const normalizedCpu = stats.cpu / numCores;
+                console.log(`[STATS] Sending stats for ${targetId} (PID ${proc.pid}): CPU ${normalizedCpu.toFixed(1)}% (raw ${stats.cpu.toFixed(1)}%), RAM ${stats.memory} bytes`);
+                mainWindow.webContents.send('instance-stats', {
+                    instanceId: targetId,
+                    cpu: normalizedCpu,
+                    memory: stats.memory
+                });
+            } catch (err) {
+                console.error(`[STATS ERR] failed to get stats for pid ${proc.pid}:`, err);
+            }
+        }
+    }
+}, 2000);
+
+ipcMain.handle("get-system-ram", async () => {
+    return require("os").totalmem();
+});
+
+ipcMain.handle("scan-instance-mods", async (event, instanceId) => {
+    try {
+        const modsPath = path.join(app.getPath("userData"), "Crystalline_Instances", instanceId, "mods");
+        const fsPromises = require("fs").promises;
+        if (!require("fs").existsSync(modsPath)) return [];
+
+        const files = await fsPromises.readdir(modsPath, { withFileTypes: true });
+        const jarFiles = files.filter(f => f.isFile() && f.name.endsWith(".jar"));
+
+        const modGroups = {};
+        for (const file of jarFiles) {
+            const filePath = path.join(modsPath, file.name);
+            const stats = await fsPromises.stat(filePath);
+            
+            const withoutExt = file.name.slice(0, -4);
+            const match = withoutExt.match(/^(.+?)[-_+](?:mc)?(?:\d+\.\d+[^-_]*[-_])?(\d+\.\d+.*)$/i);
+            const baseName = match ? match[1].toLowerCase().replace(/[-_]/g, "") : withoutExt.toLowerCase().replace(/[-_]/g, "");
+            const version = match ? match[2] : "";
+
+            if (!modGroups[baseName]) modGroups[baseName] = [];
+            modGroups[baseName].push({
+                name: file.name,
+                path: filePath,
+                version: version,
+                mtime: stats.mtimeMs,
+                size: stats.size
+            });
+        }
+
+        const duplicates = [];
+        for (const baseName in modGroups) {
+            if (modGroups[baseName].length > 1) {
+                modGroups[baseName].sort((a, b) => b.mtime - a.mtime);
+                duplicates.push({
+                    baseName: baseName,
+                    files: modGroups[baseName]
+                });
+            }
+        }
+        return duplicates;
+    } catch (err) {
+        console.error("[SCAN MODS ERR]", err);
+        return [];
+    }
+});
+
+ipcMain.handle("delete-mod-files", async (event, filePaths) => {
+    try {
+        const fsPromises = require("fs").promises;
+        for (const p of filePaths) {
+            if (require("fs").existsSync(p)) {
+                await fsPromises.unlink(p);
+            }
+        }
+        return { success: true };
+    } catch (err) {
+        console.error("[DELETE MODS ERR]", err);
+        return { success: false, error: err.message };
+    }
 });
