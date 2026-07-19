@@ -1846,7 +1846,7 @@ async function loadInstances() {
     for (const inst of res.instances) {
       const loaderDisplay = inst.loaderVersion ? `${inst.loader} ${inst.loaderVersion}` : inst.loader;
       const loaderName = (inst.loader || 'vanilla').toLowerCase();
-      const logoSrc = `/logos/${loaderName}.png`;
+      const logoSrc = `logos/${loaderName}.png`;
       instancesGrid.innerHTML += `
         <div class="instance-card glass-panel" data-id="${inst.id}" style="cursor: pointer;">
           <div class="instance-icon">
@@ -3442,7 +3442,13 @@ document.querySelectorAll('.instance-tab-btn').forEach(btn => {
 // ─── Auto-Updater Frontend Logic ─────────────────────────────────
 if (window.electronAPI.onUpdateAvailable) {
   window.electronAPI.onUpdateAvailable((info) => {
-    window.showToast({ title: 'Info', message: 'Here is some information.', type: 'info' }).then((result) => {
+    window.showToast({
+      title: 'Update Available',
+      message: `A new version (${info.version}) is available. Would you like to download and install it?`,
+      type: 'confirm',
+      confirmButtonText: 'Download',
+      cancelButtonText: 'Later'
+    }).then((result) => {
       if (result.isConfirmed) {
         window.electronAPI.startDownloadUpdate();
         Swal.fire({
@@ -3467,7 +3473,14 @@ if (window.electronAPI.onUpdateAvailable) {
   });
 
   window.electronAPI.onUpdateDownloaded((info) => {
-    window.showToast({ title: 'Success', message: 'Action completed.', type: 'success', duration: 3000 }).then((result) => {
+    Swal.close(); // Close download progress Swal
+    window.showToast({
+      title: 'Update Ready',
+      message: `Version ${info.version} has been successfully downloaded. Restart now to install it?`,
+      type: 'confirm',
+      confirmButtonText: 'Restart',
+      cancelButtonText: 'Later'
+    }).then((result) => {
       if (result.isConfirmed) {
         window.electronAPI.quitAndInstallUpdate();
       }
@@ -3475,7 +3488,8 @@ if (window.electronAPI.onUpdateAvailable) {
   });
 
   window.electronAPI.onUpdateError((err) => {
-    window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
+    Swal.close(); // Close download progress Swal if open
+    window.showToast({ title: 'Update Error', message: 'Failed to download or apply the update.', errorDetails: String(err), type: 'error' });
   });
 }
 
