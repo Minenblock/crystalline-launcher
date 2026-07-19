@@ -48,6 +48,7 @@ let partyState = {
     aesKey: null,
     members: [] // Array of { id: string, name: string }
 };
+let gameLaunchTime = null;
 const mqttBrokerUrl = "wss://broker.emqx.io:8084/mqtt"; // Public secure websocket broker
 
 function encryptPayload(payloadObj, hexKey) {
@@ -613,16 +614,37 @@ ipcMain.handle("msmc-login", async () => {
     }
 });
 
+let isOfflineMode = false;
+
 async function validateAndRefreshAccount(account) {
     if (!account || !account.access_token) return account;
     try {
         const profileRes = await httpsGet('api.minecraftservices.com', '/minecraft/profile', { Authorization: `Bearer ${account.access_token}` });
         if (profileRes && profileRes.id) {
             console.log("[AUTH] Token still valid for", profileRes.name);
+            isOfflineMode = false;
             return account;
         }
     } catch (e) {
-        console.log("[AUTH] Token validation failed, attempting refresh...");
+        console.log("[AUTH] Token validation failed, checking network state...");
+        const errMsg = e.message || "";
+        const isNetworkErr = e.code === "ENOTFOUND" || 
+                             e.code === "ETIMEDOUT" || 
+                             e.code === "ECONNRESET" || 
+                             e.code === "ECONNREFUSED" || 
+                             e.code === "EAI_AGAIN" ||
+                             e.code === "EHOSTUNREACH" ||
+                             e.code === "ENETUNREACH" ||
+                             errMsg.includes("Premature close") ||
+                             errMsg.includes("fetch failed") ||
+                             errMsg.includes("network") ||
+                             errMsg.includes("socket");
+        if (isNetworkErr) {
+            console.log("[AUTH] Network unreachable during validation. Falling back to cached profile (Offline Mode).");
+            isOfflineMode = true;
+            return account;
+        }
+        console.log("[AUTH] Normal auth failure, attempting refresh...");
     }
 
     // Refresh token logic
@@ -630,20 +652,42 @@ async function validateAndRefreshAccount(account) {
         const authManager = new Auth("login");
         if (!account.refresh_token) throw new Error("No refresh token found in account object");
         const xboxManager = await authManager.refresh(account.refresh_token);
-        const token = await xboxManager.getMinecraft();
+        const xstsToken = await xboxManager.xAuth("rp://api.minecraftservices.com/");
+        const mcAuth = await httpsPost("api.minecraftservices.com", "/authentication/login_with_xbox", { identityToken: xstsToken });
+        if (!mcAuth.access_token) throw new Error("No access_token in login_with_xbox response");
+        const profile = await httpsGet("api.minecraftservices.com", "/minecraft/profile", { Authorization: `Bearer ${mcAuth.access_token}` });
+        if (!profile.name) throw new Error("No profile name returned: " + JSON.stringify(profile));
 
         const newAccount = {
-            uuid: token.profile.id,
-            name: token.profile.name,
-            access_token: token.mclToken,
+            uuid: profile.id,
+            name: profile.name,
+            access_token: mcAuth.access_token,
             refresh_token: xboxManager.msToken.refresh_token
         };
 
         await writeEncryptedFile(path.join(app.getPath('userData'), 'auth.json'), newAccount);
         console.log("[AUTH] Token refreshed successfully for", newAccount.name);
+        isOfflineMode = false;
         return newAccount;
     } catch (e) {
         console.error("[AUTH] Refresh failed:", e.message);
+        const errMsg = e.message || "";
+        const isNetworkErr = e.code === "ENOTFOUND" || 
+                             e.code === "ETIMEDOUT" || 
+                             e.code === "ECONNRESET" || 
+                             e.code === "ECONNREFUSED" || 
+                             e.code === "EAI_AGAIN" ||
+                             e.code === "EHOSTUNREACH" ||
+                             e.code === "ENETUNREACH" ||
+                             errMsg.includes("Premature close") ||
+                             errMsg.includes("fetch failed") ||
+                             errMsg.includes("network") ||
+                             errMsg.includes("socket");
+        if (isNetworkErr && account && account.name) {
+            console.log("[AUTH] Network unreachable during refresh. Falling back to cached profile (Offline Mode).");
+            isOfflineMode = true;
+            return account;
+        }
         return null;
     }
 }
@@ -656,7 +700,7 @@ ipcMain.handle("check-auth", async () => {
             const refreshed = await validateAndRefreshAccount(account);
             if (refreshed && refreshed.name) {
                 mcAccount = refreshed;
-                return { success: true, username: refreshed.name };
+                return { success: true, username: refreshed.name, offline: isOfflineMode };
             }
         }
         return { success: false };
@@ -873,15 +917,35 @@ ipcMain.handle("download-modpack-urls", async (event, urls, instanceId) => {
 
 
 ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loader, loaderVersion, instanceId, details, state, joinSecret, partyId, partySize, partyMax }) => {
+    if (serverIp && instanceId) {
+        const proc = runningInstanceProcs.get(instanceId);
+        if (proc && proc.pid) {
+            isConnectedToServer.set(proc.pid, true);
+            disconnectTicks.set(proc.pid, 0);
+        }
+    }
     if (rpc && !modHandlingRPC) {
         try {
+            let showServer = true;
+            try {
+                const settingsPath = path.join(app.getPath("userData"), "settings.json");
+                const data = require("fs").readFileSync(settingsPath, "utf8");
+                const settings = JSON.parse(data);
+                if (settings.showServer === false) {
+                    showServer = false;
+                }
+            } catch (e) { }
+
+            const cleanServerIp = showServer ? serverIp : null;
+            const displayState = serverIp && !showServer ? "Playing Multiplayer" : (state || (serverIp ? `On ${serverIp}` : `Version ${version || ""}`));
+
             const activity = {
                 details: details || "Playing Crystalline",
-                state: state || (serverIp ? `On ${serverIp}` : `Version ${version || ""}`),
-                startTimestamp: /* @__PURE__ */ new Date(),
+                state: displayState,
+                startTimestamp: gameLaunchTime || new Date(),
                 largeImageKey: "icon_large",
                 largeImageText: "Crystalline",
-                instance: !!serverIp
+                instance: !!cleanServerIp
             };
             if (serverIp) {
                 let modpackSegment = instanceId === "default" ? "official" : "";
@@ -916,10 +980,17 @@ ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loa
                     activity.partySize = partyState.members.length || 1;
                     activity.partyMax = 10;
                 } else {
-                    activity.joinSecret = `${serverIp}|${version || ""}|${loader || ""}|${loaderVersion || ""}|${modpackSegment}`;
-                    activity.partyId = `crystalline-${serverIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
-                    activity.partySize = 1;
-                    activity.partyMax = 20;
+                    if (showServer) {
+                        activity.joinSecret = `${serverIp}|${version || ""}|${loader || ""}|${loaderVersion || ""}|${modpackSegment}`;
+                        activity.partyId = `crystalline-${serverIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
+                        activity.partySize = 1;
+                        activity.partyMax = 20;
+                    } else {
+                        activity.joinSecret = null;
+                        activity.partyId = null;
+                        activity.partySize = null;
+                        activity.partyMax = null;
+                    }
                 }
             } else if (joinSecret && partyId) {
                 // Party data passed directly (e.g. idle in party, waiting for friends)
@@ -927,6 +998,11 @@ ipcMain.handle("update-discord-presence", async (event, { serverIp, version, loa
                 activity.partyId = partyId;
                 activity.partySize = partySize || 1;
                 activity.partyMax = partyMax || 10;
+            } else {
+                activity.joinSecret = null;
+                activity.partyId = null;
+                activity.partySize = null;
+                activity.partyMax = null;
             }
 
             rpc.setActivity(activity);
@@ -1220,15 +1296,23 @@ async function setupForge(rootPath, mcVersion, loaderVersion, javaPath) {
                 errorOutput += d.toString();
             });
             let stdoutBuffer = "";
+            let lastStatusSend = 0;
             child.stdout.on("data", (d) => {
                 stdoutBuffer += d.toString();
                 const lines = stdoutBuffer.split("\n");
                 stdoutBuffer = lines.pop();
-                for (const line of lines) if (line.includes("Downloading")) mainWindow.webContents.send("launch-status", line.trim());
+                const now = Date.now();
+                if (now - lastStatusSend > 250) {
+                    const interesting = lines.filter(l => l.includes("Downloading") || l.includes("Installing") || l.includes("Extracting")).pop();
+                    if (interesting) {
+                        mainWindow.webContents.send("launch-status", interesting.trim());
+                        lastStatusSend = now;
+                    }
+                }
             });
             child.on("close", (code) => {
                 if (code === 0) resolve();
-                else reject(/* @__PURE__ */ new Error("Installer exited with code " + code + ": " + errorOutput.substring(0, 500)));
+                else reject(new Error("Installer exited with code " + code + ": " + errorOutput.substring(0, 500)));
             });
             child.on("error", reject);
         });
@@ -1331,15 +1415,23 @@ async function setupNeoForge(rootPath, mcVersion, loaderVersion, javaPath) {
                     errorOutput += d.toString();
                 });
                 let stdoutBuffer = "";
+                let lastStatusSend = 0;
                 child.stdout.on("data", (d) => {
                     stdoutBuffer += d.toString();
                     const lines = stdoutBuffer.split("\n");
                     stdoutBuffer = lines.pop();
-                    for (const line of lines) if (line.includes("Downloading")) mainWindow.webContents.send("launch-status", line.trim());
+                    const now = Date.now();
+                    if (now - lastStatusSend > 250) {
+                        const interesting = lines.filter(l => l.includes("Downloading") || l.includes("Installing") || l.includes("Extracting")).pop();
+                        if (interesting) {
+                            mainWindow.webContents.send("launch-status", interesting.trim());
+                            lastStatusSend = now;
+                        }
+                    }
                 });
                 child.on("close", (code) => {
                     if (code === 0) resolve();
-                    else reject(/* @__PURE__ */ new Error("Installer exited with code " + code + ": " + errorOutput.substring(0, 500)));
+                    else reject(new Error("Installer exited with code " + code + ": " + errorOutput.substring(0, 500)));
                 });
                 child.on("error", reject);
             });
@@ -1388,6 +1480,9 @@ async function launchXMCL({ rootPath, customVersionName, mcAccount, javaPath, ra
         console.log(`[LAUNCH] Fast launch: Skipping dependency resolution for ${resolvedVersionStr} because it is fully installed.`);
         mainWindow.webContents.send("launch-status", "Fast Launch: Skipping file checks...");
     } else {
+        if (isOfflineMode) {
+            throw new Error("Minecraft is not fully installed and you are offline. Please connect to the internet to download game files.");
+        }
         console.log("[XMCL] Installing missing dependencies...");
         mainWindow.webContents.send("launch-status", "Verifying game files...");
         const indexesDir = path0.join(sharedPath, "assets", "indexes");
@@ -1397,14 +1492,14 @@ async function launchXMCL({ rootPath, customVersionName, mcAccount, javaPath, ra
         while (retries > 0) try {
             const task = installDependenciesTask(await Version.parse(MinecraftFolder.from(sharedPath), customVersionName), {
                 side: "client",
-                maxConcurrency: 16
+                maxConcurrency: 6  // lower than 16 to reduce event-loop pressure on the main process
             });
             console.log(`[DEBUG] Task instantiated, startAndWait...`);
             let lastUpdate = 0;
             await task.startAndWait({
                 onUpdate: (childTask, chunkSize) => {
                     const now = Date.now();
-                    if (now - lastUpdate > 200 || childTask.progress === childTask.total) {
+                    if (now - lastUpdate > 400 || childTask.progress === childTask.total) {
                         lastUpdate = now;
                         if (childTask.total > 0) {
                             const percentage = Math.round(childTask.progress / childTask.total * 100);
@@ -1454,6 +1549,16 @@ async function launchXMCL({ rootPath, customVersionName, mcAccount, javaPath, ra
         ignoreInvalidMinecraftCertificates: true,
         ignorePatchDiscrepancies: true
     };
+    // Client-friendly G1GC flags for lower latency and smoother frame pacing
+    launchOptions.extraJVMArgs = [
+        "-XX:+UseG1GC",
+        "-XX:MaxGCPauseMillis=100",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+DisableExplicitGC",
+        "-XX:G1NewSizePercent=20",
+        "-XX:G1ReservePercent=20",
+        "-XX:G1HeapRegionSize=32m"
+    ];
     const nativeRoot = sharedFolder.getNativesRoot(resolvedVersion.id);
     const { execFile } = require("child_process");
     if (!fs5.existsSync(nativeRoot)) fs5.mkdirSync(nativeRoot, { recursive: true });
@@ -1509,7 +1614,13 @@ function applyOptionsOverride(userSettings, rootPath, proc) {
     const mcFmt = {
         fov: mc.fov !== undefined ? ((mc.fov - 70) / 40).toFixed(5) : undefined,
         renderDistance: mc.renderDistance,
+        simulationDistance: mc.simulationDistance,
         maxFps: mc.maxFps,
+        graphicsMode: mc.graphicsMode,
+        guiScale: mc.guiScale,
+        enableVsync: mc.enableVsync !== undefined ? String(mc.enableVsync) : undefined,
+        bobView: mc.bobView !== undefined ? String(mc.bobView) : undefined,
+        entityShadows: mc.entityShadows !== undefined ? String(mc.entityShadows) : undefined,
         soundCategory_master: mc.masterVolume !== undefined ? (mc.masterVolume / 100).toFixed(1) : undefined,
         soundCategory_music: mc.volMusic !== undefined ? (mc.volMusic / 100).toFixed(1) : undefined,
         soundCategory_record: mc.volRecord !== undefined ? (mc.volRecord / 100).toFixed(1) : undefined,
@@ -1566,6 +1677,7 @@ function applyOptionsOverride(userSettings, rootPath, proc) {
 }
 
 ipcMain.handle("launch-minecraft", async (event, targetId) => {
+    gameLaunchTime = new Date();
     global.activeTasks++;
     try {
         const configPath = path.join(app.getPath("userData"), "Crystalline_Instances", targetId, "config.json");
@@ -1678,7 +1790,7 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                     rpc.setActivity({
                         details: "Playing Crystalline",
                         state: "Version " + targetVersion,
-                        startTimestamp: /* @__PURE__ */ new Date(),
+                        startTimestamp: gameLaunchTime || new Date(),
                         largeImageKey: "icon_large",
                         largeImageText: "Crystalline",
                         instance: true
@@ -1688,7 +1800,13 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
         };
         let lastErrorLog = "";
         const setClosedState = (code) => {
+            gameLaunchTime = null;
             modHandlingRPC = false;
+            const procInstance = runningInstanceProcs.get(targetId);
+            if (procInstance && procInstance.pid) {
+                disconnectTicks.delete(procInstance.pid);
+                isConnectedToServer.delete(procInstance.pid);
+            }
             runningInstances.delete(targetId);
             runningInstanceProcs.delete(targetId);
             if (code === 0 || code === null || code === undefined) {
@@ -1696,11 +1814,19 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
             } else {
                 if (mainWindow) mainWindow.webContents.send("launch-status", `Crashed: Process exited with code ${code}\n\n${lastErrorLog}`);
             }
+            if (mainWindow) mainWindow.webContents.send("discord-bridge-update", null);
             try {
                 rpc.setActivity({
                     details: "In Launcher",
                     state: "Preparing for an adventure",
-                    startTimestamp: /* @__PURE__ */ new Date()
+                    startTimestamp: /* @__PURE__ */ new Date(),
+                    largeImageKey: "icon_large",
+                    largeImageText: "Crystalline",
+                    partyId: null,
+                    joinSecret: null,
+                    partySize: null,
+                    partyMax: null,
+                    instance: false
                 });
             } catch (e) { }
         };
@@ -1744,7 +1870,13 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 const mcFmt = {
                     fov: mc.fov !== undefined ? ((mc.fov - 70) / 40).toFixed(5) : undefined,
                     renderDistance: mc.renderDistance,
+                    simulationDistance: mc.simulationDistance,
                     maxFps: mc.maxFps,
+                    graphicsMode: mc.graphicsMode,
+                    guiScale: mc.guiScale,
+                    enableVsync: mc.enableVsync !== undefined ? String(mc.enableVsync) : undefined,
+                    bobView: mc.bobView !== undefined ? String(mc.bobView) : undefined,
+                    entityShadows: mc.entityShadows !== undefined ? String(mc.entityShadows) : undefined,
                     soundCategory_master: mc.masterVolume !== undefined ? (mc.masterVolume / 100).toFixed(1) : undefined,
                     soundCategory_music: mc.volMusic !== undefined ? (mc.volMusic / 100).toFixed(1) : undefined,
                     soundCategory_record: mc.volRecord !== undefined ? (mc.volRecord / 100).toFixed(1) : undefined,
@@ -1783,7 +1915,8 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 javaPath,
                 ram: ramMb,
                 targetId,
-                targetVersion
+                targetVersion,
+
             });
             console.log("[DEBUG] launchXMCL complete");
             proc.stdout.on("data", (d) => {
@@ -1821,7 +1954,8 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 javaPath,
                 ram: ramMb,
                 targetId,
-                targetVersion
+                targetVersion,
+
             });
             console.log("[DEBUG] launchXMCL complete");
             proc.stdout.on("data", (d) => {
@@ -1861,7 +1995,8 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 javaPath,
                 ram: ramMb,
                 targetId,
-                targetVersion
+                targetVersion,
+
             });
             console.log("[DEBUG] launchXMCL complete");
             proc.stdout.on("data", (d) => {
@@ -1901,7 +2036,8 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 javaPath,
                 ram: ramMb,
                 targetId,
-                targetVersion
+                targetVersion,
+
             });
             console.log("[DEBUG] launchXMCL complete");
             proc.stdout.on("data", (d) => {
@@ -1939,7 +2075,8 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
                 javaPath,
                 ram: ramMb,
                 targetId,
-                targetVersion
+                targetVersion,
+
             });
             console.log("[DEBUG] launchXMCL complete");
             proc.stdout.on("data", (d) => {
@@ -1968,10 +2105,33 @@ ipcMain.handle("launch-minecraft", async (event, targetId) => {
         }
 
         if (userSettings.override && userSettings.mcOptions) try {
+            const mc = userSettings.mcOptions;
+            const mcFmt = {
+                fov: mc.fov !== undefined ? ((mc.fov - 70) / 40).toFixed(5) : undefined,
+                renderDistance: mc.renderDistance,
+                simulationDistance: mc.simulationDistance,
+                maxFps: mc.maxFps,
+                graphicsMode: mc.graphicsMode,
+                guiScale: mc.guiScale,
+                enableVsync: mc.enableVsync !== undefined ? String(mc.enableVsync) : undefined,
+                bobView: mc.bobView !== undefined ? String(mc.bobView) : undefined,
+                entityShadows: mc.entityShadows !== undefined ? String(mc.entityShadows) : undefined,
+                soundCategory_master: mc.masterVolume !== undefined ? (mc.masterVolume / 100).toFixed(1) : undefined,
+                soundCategory_music: mc.volMusic !== undefined ? (mc.volMusic / 100).toFixed(1) : undefined,
+                soundCategory_record: mc.volRecord !== undefined ? (mc.volRecord / 100).toFixed(1) : undefined,
+                soundCategory_weather: mc.volWeather !== undefined ? (mc.volWeather / 100).toFixed(1) : undefined,
+                soundCategory_block: mc.volBlock !== undefined ? (mc.volBlock / 100).toFixed(1) : undefined,
+                soundCategory_hostile: mc.volHostile !== undefined ? (mc.volHostile / 100).toFixed(1) : undefined,
+                soundCategory_neutral: mc.volNeutral !== undefined ? (mc.volNeutral / 100).toFixed(1) : undefined,
+                soundCategory_player: mc.volPlayer !== undefined ? (mc.volPlayer / 100).toFixed(1) : undefined,
+                soundCategory_ambient: mc.volAmbient !== undefined ? (mc.volAmbient / 100).toFixed(1) : undefined,
+                soundCategory_voice: mc.volVoice !== undefined ? (mc.volVoice / 100).toFixed(1) : undefined
+            };
             const targetOptions = require("path").join(rootPath, "options.txt");
             let lines = [];
             if (require("fs").existsSync(targetOptions)) lines = (await require("fs").promises.readFile(targetOptions, "utf-8")).split("\n");
-            for (const [key, val] of Object.entries(userSettings.mcOptions)) {
+            for (const [key, val] of Object.entries(mcFmt)) {
+                if (val === undefined) continue;
                 let found = false;
                 for (let i = 0; i < lines.length; i++) if (lines[i].startsWith(`${key}:`)) {
                     lines[i] = `${key}:${val}`;
@@ -2085,12 +2245,17 @@ ipcMain.handle("check-modpack-update", async () => {
     try {
         let remoteInfo;
         try {
-            const localPath = path.join(app.getAppPath(), "modpack_info.json");
-            const localData = await fs.readFile(localPath, "utf8");
-            remoteInfo = JSON.parse(localData);
-            console.log("Using LOCAL modpack_info.json for update check");
-        } catch (e) {
             remoteInfo = await fetchJson("https://raw.githubusercontent.com/Minenblock/crystalline-launcher/main/modpack_info.json");
+        } catch (e) {
+            console.warn("Failed to fetch remote modpack info, falling back to local:", e.message);
+            try {
+                const localPath = path.join(app.getAppPath(), "modpack_info.json");
+                const localData = await fs.readFile(localPath, "utf8");
+                remoteInfo = JSON.parse(localData);
+                console.log("Using LOCAL modpack_info.json for update check");
+            } catch (localErr) {
+                // If local fails too, remoteInfo will remain undefined/null
+            }
         }
         if (!remoteInfo || !remoteInfo.version || !remoteInfo.url) return {
             success: false,
@@ -2623,6 +2788,104 @@ ipcMain.handle("save-settings", async (event, settings) => {
         };
     }
 });
+ipcMain.handle("detect-java-installations", async () => {
+    const fsNode = require("fs");
+    const pathNode = require("path");
+
+    async function scanDirForJava(dirPath, depth = 0) {
+        if (depth > 3) return [];
+        let results = [];
+        try {
+            if (!fsNode.existsSync(dirPath)) return [];
+            const stats = await fs.stat(dirPath);
+            if (!stats.isDirectory()) return [];
+
+            const files = await fs.readdir(dirPath, { withFileTypes: true });
+            for (const file of files) {
+                const fullPath = pathNode.join(dirPath, file.name);
+                if (file.isDirectory()) {
+                    if (file.name.toLowerCase() === "bin") {
+                        const javaExe = pathNode.join(fullPath, "javaw.exe");
+                        const javaExe2 = pathNode.join(fullPath, "java.exe");
+                        if (fsNode.existsSync(javaExe)) {
+                            results.push(javaExe);
+                        } else if (fsNode.existsSync(javaExe2)) {
+                            results.push(javaExe2);
+                        }
+                    } else {
+                        const subResults = await scanDirForJava(fullPath, depth + 1);
+                        results = results.concat(subResults);
+                    }
+                }
+            }
+        } catch (e) {}
+        return results;
+    }
+
+    function getJavaLabel(filePath) {
+        const parts = filePath.split(pathNode.sep);
+        let distro = "Java";
+        let version = "";
+        
+        const binIndex = parts.indexOf("bin");
+        if (binIndex > 0) {
+            const folderName = parts[binIndex - 1];
+            version = folderName.replace(/(jdk-|jre|jdk|jre-)/g, "");
+            if (version.startsWith("1.")) {
+                const up = version.split("_")[1];
+                version = "8" + (up ? ` (Update ${up})` : "");
+            } else if (version.includes('-hotspot')) {
+                version = version.split('-hotspot')[0];
+            } else if (version.includes('+')) {
+                version = version.split('+')[0];
+            }
+        }
+        
+        const filePathLower = filePath.toLowerCase();
+        if (filePathLower.includes("eclipse adoptium") || filePathLower.includes("temurin")) {
+            distro = "Eclipse Temurin";
+        } else if (filePathLower.includes("zulu")) {
+            distro = "Azul Zulu";
+        } else if (filePathLower.includes("bellsoft") || filePathLower.includes("liberica")) {
+            distro = "BellSoft Liberica";
+        } else if (filePathLower.includes("microsoft")) {
+            distro = "Microsoft OpenJDK";
+        } else if (filePathLower.includes("oracle")) {
+            distro = "Oracle Java";
+        } else if (filePathLower.includes("semeru")) {
+            distro = "IBM Semeru";
+        } else if (filePathLower.includes("corretto")) {
+            distro = "Amazon Corretto";
+        } else if (filePathLower.includes("java\\jre") || filePathLower.includes("java\\jdk")) {
+            distro = "Oracle Java";
+        } else {
+            distro = "OpenJDK / Java";
+        }
+        
+        return `${distro} ${version}`;
+    }
+
+    const searchDirs = [
+        "C:\\Program Files\\Java",
+        "C:\\Program Files\\Eclipse Adoptium",
+        "C:\\Program Files\\Eclipse Foundation",
+        "C:\\Program Files (x86)\\Java",
+        "C:\\Program Files\\BellSoft",
+        "C:\\Program Files\\Zulu",
+        "C:\\Program Files\\Microsoft"
+    ];
+    let allPaths = [];
+    for (const dir of searchDirs) {
+        const found = await scanDirForJava(dir);
+        allPaths = allPaths.concat(found);
+    }
+
+    // Map to objects with path and user friendly label
+    return allPaths.map(p => ({
+        path: p,
+        label: getJavaLabel(p)
+    }));
+});
 ipcMain.handle("select-vanilla-folder", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
         title: "Select Vanilla Minecraft Folder",
@@ -3065,6 +3328,12 @@ var modBridgeServer = http.createServer(async (req, res) => {
                 if (data.joinSecret) activity.joinSecret = data.joinSecret;
                 await rpc.setActivity(activity);
             }
+            if (mainWindow) {
+                let ip = null;
+                if (data.state && data.state.startsWith("On ")) ip = data.state.substring(3);
+                else if (data.details && data.details.startsWith("On ")) ip = data.details.substring(3);
+                if (ip) mainWindow.webContents.send("discord-bridge-update", ip);
+            }
             res.writeHead(200);
             res.end(JSON.stringify({ success: true }));
             modHandlingRPC = true;
@@ -3087,10 +3356,15 @@ var modBridgeServer = http.createServer(async (req, res) => {
                     startTimestamp: new Date(),
                     largeImageKey: "icon_large",
                     largeImageText: "Crystalline",
+                    partyId: null,
+                    joinSecret: null,
+                    partySize: null,
+                    partyMax: null,
                     instance: false
                 });
                 console.log("[API Bridge] Discord presence reset to launcher default.");
             }
+            if (mainWindow) mainWindow.webContents.send("discord-bridge-update", null);
             res.writeHead(200);
             res.end(JSON.stringify({ success: true }));
             modHandlingRPC = false;
@@ -3408,6 +3682,53 @@ ipcMain.handle("send-party-chat", async (event, message, user) => {
     return false;
 });
 
+const disconnectTicks = new Map();
+const isConnectedToServer = new Map();
+
+function checkHasMinecraftConnection(pid) {
+    return new Promise((resolve) => {
+        const { exec } = require('child_process');
+        exec(`netstat -ano`, (err, stdout) => {
+            if (err) {
+                resolve(true); // Fallback to true on error to avoid false disconnects
+                return;
+            }
+            const lines = stdout.split('\n');
+            let hasServerConnection = false;
+            const pidStr = String(pid);
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 5) {
+                    const proto = parts[0];
+                    const state = parts[3];
+                    const linePid = parts[4];
+                    if (proto === 'TCP' && state === 'ESTABLISHED' && linePid === pidStr) {
+                        const foreignAddress = parts[2];
+                        const portIndex = foreignAddress.lastIndexOf(':');
+                        if (portIndex !== -1) {
+                            const ip = foreignAddress.substring(0, portIndex);
+                            const port = foreignAddress.substring(portIndex + 1);
+                            
+                            const isLoopback = ip === '127.0.0.1' || 
+                                               ip === '[::1]' || 
+                                               ip === '0.0.0.0' || 
+                                               ip === '[::]' || 
+                                               ip.startsWith('127.') || 
+                                               ip === 'localhost';
+
+                            if (!isLoopback && port !== '443' && port !== '80' && port !== '53') {
+                                hasServerConnection = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            resolve(hasServerConnection);
+        });
+    });
+}
+
 // Start stats interval
 setInterval(async () => {
     if (!mainWindow) return;
@@ -3425,6 +3746,26 @@ setInterval(async () => {
                 });
             } catch (err) {
                 console.error(`[STATS ERR] failed to get stats for pid ${proc.pid}:`, err);
+            }
+
+            // Check TCP connection of Minecraft to instantly detect server disconnection
+            try {
+                const hasConn = await checkHasMinecraftConnection(proc.pid);
+                if (hasConn) {
+                    isConnectedToServer.set(proc.pid, true);
+                    disconnectTicks.set(proc.pid, 0);
+                } else if (isConnectedToServer.get(proc.pid)) {
+                    const ticks = (disconnectTicks.get(proc.pid) || 0) + 1;
+                    disconnectTicks.set(proc.pid, ticks);
+                    if (ticks >= 3) {
+                        isConnectedToServer.set(proc.pid, false);
+                        disconnectTicks.set(proc.pid, 0);
+                        console.log(`[NETWORK CHECK] PID ${proc.pid} has no established Minecraft connection. Clearing server status.`);
+                        mainWindow.webContents.send("discord-bridge-update", null);
+                    }
+                }
+            } catch (netErr) {
+                console.error(`[NETWORK CHECK ERR] failed for pid ${proc.pid}:`, netErr);
             }
         }
     }
@@ -3491,6 +3832,47 @@ ipcMain.handle("delete-mod-files", async (event, filePaths) => {
         return { success: true };
     } catch (err) {
         console.error("[DELETE MODS ERR]", err);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle("export-instance", async (event, instanceId) => {
+    try {
+        const { dialog } = require("electron");
+        const instancePath = path.join(app.getPath("userData"), "Crystalline_Instances", instanceId);
+        if (!require("fs").existsSync(instancePath)) {
+            throw new Error("Instance folder does not exist");
+        }
+
+        const { filePath } = await dialog.showSaveDialog(mainWindow, {
+            title: "Export Instance Backup",
+            defaultPath: path.join(app.getPath("desktop"), `${instanceId}-backup.zip`),
+            filters: [{ name: "ZIP Archives", extensions: ["zip"] }]
+        });
+
+        if (!filePath) return { success: false, error: "Save canceled" };
+
+        mainWindow.webContents.send("launch-status", "Creating backup archive...");
+        
+        const { exec } = require("child_process");
+        const escapedSource = instancePath.replace(/'/g, "''");
+        const escapedDest = filePath.replace(/'/g, "''");
+        const cmd = `powershell -NoProfile -NonInteractive -Command "Compress-Archive -Path '${escapedSource}\\*' -DestinationPath '${escapedDest}' -Force"`;
+
+        await new Promise((resolve, reject) => {
+            exec(cmd, (error, stdout, stderr) => {
+                if (error) {
+                    console.error("[ZIP ERROR]", stderr || error);
+                    reject(new Error(stderr || error.message));
+                } else {
+                    resolve();
+                }
+            });
+        });
+
+        return { success: true, path: filePath };
+    } catch (err) {
+        console.error("[EXPORT ERROR]", err);
         return { success: false, error: err.message };
     }
 });

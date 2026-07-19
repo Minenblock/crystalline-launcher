@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importModpack: (filePath, name) => ipcRenderer.invoke('import-modpack', filePath, name),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  detectJavaInstallations: () => ipcRenderer.invoke('detect-java-installations'),
   openInstanceFolder: (instanceId) => ipcRenderer.invoke('open-instance-folder', instanceId),
   downloadModrinthFile: (url, instanceId, folderName, fileName) => ipcRenderer.invoke('download-modrinth-file', url, instanceId, folderName, fileName),
   downloadModpackUrls: (urls, instanceId) => ipcRenderer.invoke('download-modpack-urls', urls, instanceId),
@@ -65,7 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   joinParty: (groupId, aesKey, user) => ipcRenderer.invoke('join-party', groupId, aesKey, user),
   leaveParty: (userId) => ipcRenderer.invoke('leave-party', userId),
   sendPartyChatMessage: (user, message) => ipcRenderer.invoke('send-party-chat-message', user, message),
-  updatePartyStatus: (statusText, userId) => ipcRenderer.invoke('update-party-status', statusText, userId),
+  updatePartyStatus: (statusText, userId, serverIp, version, loader, modpackSegment) => ipcRenderer.invoke('update-party-status', statusText, userId, serverIp, version, loader, modpackSegment),
   startPartyInstance: (payload) => ipcRenderer.invoke('start-party-instance', payload),
   onPartyUpdate: (callback) => ipcRenderer.on('party-update', (_event, state) => callback(state)),
   onPartyStartInstance: (callback) => ipcRenderer.on('party-start-instance', (_event, payload) => callback(payload)),
@@ -76,6 +77,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemRam: () => ipcRenderer.invoke('get-system-ram'),
   scanInstanceMods: (instanceId) => ipcRenderer.invoke('scan-instance-mods', instanceId),
   deleteModFiles: (filePaths) => ipcRenderer.invoke('delete-mod-files', filePaths),
+  exportInstance: (instanceId) => ipcRenderer.invoke('export-instance', instanceId),
 
   // Auto-Updater
   onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_event, info) => callback(info)),

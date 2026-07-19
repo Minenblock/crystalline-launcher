@@ -12,9 +12,160 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Montserrat:wght@600;700;800;900&display=swap"
     rel="stylesheet">
+  <style>
+    .icon {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vertical-align: middle;
+    }
+
+    .nav-icon .icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    .widget-icon .icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    .play-icon .icon {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+      stroke: none;
+    }
+  </style>
 </head>
 
 <body>
+  <!-- SVG Icon Sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <!-- Dashboard / Grid -->
+    <symbol id="ic-dashboard" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </symbol>
+    <!-- Instances / Layers -->
+    <symbol id="ic-instances" viewBox="0 0 24 24">
+      <polygon points="12 2 22 8.5 12 15 2 8.5" />
+      <polyline points="2 15.5 12 22 22 15.5" />
+      <polyline points="2 12 12 18.5 22 12" />
+    </symbol>
+    <!-- Party / Users -->
+    <symbol id="ic-party" viewBox="0 0 24 24">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </symbol>
+    <!-- Skins / Shirt -->
+    <symbol id="ic-skins" viewBox="0 0 24 24">
+      <path
+        d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z" />
+    </symbol>
+    <!-- Storage / Database -->
+    <symbol id="ic-storage" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </symbol>
+    <!-- Alerts / Bell -->
+    <symbol id="ic-alerts" viewBox="0 0 24 24">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </symbol>
+    <!-- Settings / Sliders -->
+    <symbol id="ic-settings" viewBox="0 0 24 24">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+      <circle cx="8" cy="6" r="2" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="12" r="2" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="18" r="2" fill="currentColor" stroke="none" />
+    </symbol>
+    <!-- Play -->
+    <symbol id="ic-play" viewBox="0 0 24 24">
+      <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none" />
+    </symbol>
+    <!-- Folder -->
+    <symbol id="ic-folder" viewBox="0 0 24 24">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </symbol>
+    <!-- Export / Upload -->
+    <symbol id="ic-export" viewBox="0 0 24 24">
+      <polyline points="16 16 12 12 8 16" />
+      <line x1="12" y1="12" x2="12" y2="21" />
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+    </symbol>
+    <!-- Delete / Trash -->
+    <symbol id="ic-trash" viewBox="0 0 24 24">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </symbol>
+    <!-- Download arrow -->
+    <symbol id="ic-download" viewBox="0 0 24 24">
+      <polyline points="8 17 12 21 16 17" />
+      <line x1="12" y1="12" x2="12" y2="21" />
+      <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.83" />
+    </symbol>
+    <!-- Clock / History -->
+    <symbol id="ic-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </symbol>
+    <!-- Newspaper / News -->
+    <symbol id="ic-news" viewBox="0 0 24 24">
+      <path
+        d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0-2 2zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
+      <path d="M18 14h-8" />
+      <path d="M15 18h-5" />
+      <path d="M10 6h8v4h-8V6z" />
+    </symbol>
+    <!-- Drop / Arrow down into box -->
+    <symbol id="ic-drop" viewBox="0 0 24 24">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </symbol>
+    <!-- Login arrow -->
+    <symbol id="ic-login" viewBox="0 0 24 24">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <polyline points="10 17 15 12 10 7" />
+      <line x1="15" y1="12" x2="3" y2="12" />
+    </symbol>
+    <!-- Logout X -->
+    <symbol id="ic-logout" viewBox="0 0 24 24">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </symbol>
+    <!-- Back arrow -->
+    <symbol id="ic-back" viewBox="0 0 24 24">
+      <polyline points="15 18 9 12 15 6" />
+    </symbol>
+    <!-- Pickaxe / instance placeholder -->
+    <symbol id="ic-pickaxe" viewBox="0 0 24 24">
+      <line x1="3" y1="21" x2="21" y2="3" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </symbol>
+    <!-- Recommend / Sparkle -->
+    <symbol id="ic-recommend" viewBox="0 0 24 24">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+        fill="currentColor" stroke="none" />
+    </symbol>
+  </svg>
   <div class="titlebar"></div>
   <div id="app">
     <!-- SIDEBAR -->
@@ -27,31 +178,45 @@
 
       <nav class="nav-links">
         <a id="nav-dashboard" class="nav-item active" href="#">
-          <span class="nav-icon">⊞</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-dashboard" />
+            </svg></span>
           <span>Dashboard</span>
         </a>
         <a id="nav-instances" class="nav-item" href="#">
-          <span class="nav-icon">▦</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-instances" />
+            </svg></span>
           <span>Instances</span>
         </a>
         <a id="nav-friends" class="nav-item" href="#">
-          <span class="nav-icon">⚑</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-party" />
+            </svg></span>
           <span>Party</span>
         </a>
         <a id="nav-skins" class="nav-item" href="#">
-          <span class="nav-icon">▨</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-skins" />
+            </svg></span>
           <span>Skins</span>
         </a>
         <a id="nav-storage" class="nav-item" href="#">
-          <span class="nav-icon">◫</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-storage" />
+            </svg></span>
           <span>Storage</span>
         </a>
         <a id="nav-notifications" class="nav-item" href="#">
-          <span class="nav-icon">⚠</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-alerts" />
+            </svg></span>
           <span>Alerts</span>
         </a>
         <a id="nav-settings" class="nav-item" href="#">
-          <span class="nav-icon">⚙</span>
+          <span class="nav-icon"><svg class="icon">
+              <use href="#ic-settings" />
+            </svg></span>
           <span>Settings</span>
         </a>
       </nav>
@@ -63,7 +228,10 @@
           <p id="username-display" class="user-name">Not logged in</p>
           <p class="user-role">Microsoft Account</p>
         </div>
-        <button id="login-btn" class="btn-login" title="Sign in with Microsoft">→</button>
+        <button id="login-btn" class="btn-login" title="Sign in with Microsoft"><svg class="icon"
+            style="width:16px;height:16px">
+            <use href="#ic-login" />
+          </svg></button>
       </div>
 
       <div class="sidebar-footer" style="flex-direction:column; align-items:flex-start; gap:12px;">
@@ -166,6 +334,11 @@
             </div>
           </div>
         </div>
+        <div id="party-login-warning" class="glass-panel"
+          style="padding: 16px; display: none; text-align: center; border-left: 4px solid var(--error); margin-bottom: 12px;">
+          <span style="color: var(--text-dim); font-size: 13px;">You must be logged in with a Microsoft Account to use
+            the party system.</span>
+        </div>
         <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px;">
           <button id="btn-create-party" class="btn-secondary"
             style="padding: 10px 20px; font-size: 14px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">+
@@ -251,7 +424,9 @@
             <div class="hero-actions" style="display:flex; flex-direction:column; gap:8px;">
               <div style="display:flex; align-items:center; gap:12px;">
                 <button id="play-btn" class="btn-play" disabled>
-                  <span class="play-icon">▶</span>
+                  <span class="play-icon"><svg class="icon">
+                      <use href="#ic-play" />
+                    </svg></span>
                   <span id="play-label">Login to Play</span>
                 </button>
                 <span id="launch-status-text" class="launch-status"></span>
@@ -278,7 +453,9 @@
             <!-- Last Played Instances Widget -->
             <div class="widget-card glass-panel">
               <div class="widget-header">
-                <span class="widget-icon">◷</span>
+                <span class="widget-icon"><svg class="icon">
+                    <use href="#ic-clock" />
+                  </svg></span>
                 <h3 class="widget-title">Last Played Instances</h3>
               </div>
               <div class="widget-content" id="last-played-content"
@@ -290,7 +467,9 @@
             <!-- News Widget -->
             <div class="widget-card glass-panel">
               <div class="widget-header">
-                <span class="widget-icon">▤</span>
+                <span class="widget-icon"><svg class="icon">
+                    <use href="#ic-news" />
+                  </svg></span>
                 <h3 class="widget-title">Latest News</h3>
               </div>
               <div class="widget-content" id="news-content">
@@ -336,7 +515,9 @@
 
         <!-- Drop Zone -->
         <div id="drop-zone" class="drop-zone glass-panel">
-          <div class="drop-icon">⇓</div>
+          <div class="drop-icon"><svg class="icon" style="width:40px;height:40px;stroke-width:1.5">
+              <use href="#ic-drop" />
+            </svg></div>
           <h3 class="drop-title">Drop Modpack Here</h3>
           <p class="drop-subtitle">CurseForge · Modrinth · Prism Launcher (.zip, .mrpack)</p>
         </div>
@@ -344,12 +525,16 @@
         <!-- Instances Grid -->
         <div id="instances-grid" class="instances-grid">
           <div class="instance-card glass-panel">
-            <div class="instance-icon">⛏</div>
+            <div class="instance-icon"><svg class="icon" style="width:28px;height:28px">
+                <use href="#ic-pickaxe" />
+              </svg></div>
             <div class="instance-info">
               <h3 class="instance-name">Default (Crystalline)</h3>
               <p class="instance-meta">Minecraft 1.20.1 · Forge</p>
             </div>
-            <button class="btn-play-sm">▶</button>
+            <button class="btn-play-sm"><svg class="icon" style="width:14px;height:14px">
+                <use href="#ic-play" />
+              </svg></button>
           </div>
         </div>
       </div>
@@ -358,17 +543,30 @@
       <div id="view-instance-details" class="view-section">
         <div class="view-header">
           <div>
-            <button id="btn-back-instances" class="btn-back">← Back to Instances</button>
+            <button id="btn-back-instances" class="btn-back"><svg class="icon" style="width:14px;height:14px">
+                <use href="#ic-back" />
+              </svg> Back to Instances</button>
             <h1 id="detail-title" class="view-title">Instance Name</h1>
             <p id="detail-subtitle" class="view-subtitle">Minecraft 1.20.1 · Vanilla</p>
           </div>
           <div style="display:flex; gap:10px;">
             <button id="detail-play-btn" class="btn-play" style="height: 40px; padding: 0 24px; font-size: 14px;">
-              <span class="play-icon">▶</span>
+              <span class="play-icon"><svg class="icon">
+                  <use href="#ic-play" />
+                </svg></span>
               <span id="detail-play-label">Play</span>
             </button>
-            <button id="detail-folder-btn" class="btn-secondary" style="height: 40px;">◲ Folder</button>
-            <button id="detail-delete-btn" class="btn-danger">✕ Delete</button>
+            <button id="detail-folder-btn" class="btn-secondary" style="height: 40px;"><svg class="icon"
+                style="width:14px;height:14px">
+                <use href="#ic-folder" />
+              </svg> Folder</button>
+            <button id="detail-export-btn" class="btn-secondary" style="height: 40px;"><svg class="icon"
+                style="width:14px;height:14px">
+                <use href="#ic-export" />
+              </svg> Export</button>
+            <button id="detail-delete-btn" class="btn-danger"><svg class="icon" style="width:14px;height:14px">
+                <use href="#ic-trash" />
+              </svg> Delete</button>
           </div>
         </div>
 
@@ -604,7 +802,7 @@
                 <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
                   <span>Max RAM Allocation</span>
                   <button id="btn-recommend-ram" class="btn-secondary"
-                    style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Empfohlen</button>
+                    style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Recommended</button>
                 </label>
                 <div class="input-wrapper">
                   <input type="text" id="setting-ram" value="4G" class="form-input" placeholder="e.g. 4G, 8G">
@@ -612,11 +810,21 @@
                 </div>
               </div>
               <div class="form-group">
-                <label class="form-label">Java Executable Path</label>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <label class="form-label">Java Executable Path</label>
+                  <button id="btn-detect-java" class="btn-secondary"
+                    style="font-size:10px; padding:2px 8px; border-radius:4px; height:20px; text-transform:none; letter-spacing:normal;">Auto-Detect</button>
+                </div>
                 <input type="text" id="setting-java" class="form-input"
                   placeholder="Leave empty to use system Java (RECOMMENDED)">
-                <p class="form-hint">e.g. C:\Program Files\Java\jdk-17\bin\java.exe</p>
+                <p class="form-hint" style="margin-bottom:6px;">e.g. C:\Program Files\Java\jdk-17\bin\java.exe</p>
+                <div id="java-detected-list"
+                  style="display:none; margin-top:8px; padding:10px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); max-height:150px; overflow-y:auto;">
+                  <!-- List of detected Javas -->
+                </div>
               </div>
+
+
 
               <div class="form-group"
                 style="display:flex; align-items:center; justify-content:space-between; margin-top:10px; background:var(--surface-hover); padding:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
@@ -633,6 +841,7 @@
                     style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#333; transition:.4s; border-radius:20px;"></span>
                 </label>
               </div>
+
               <div class="form-group" style="display:flex; align-items:center; gap:10px; margin-top:20px;">
                 <label class="switch" style="position:relative; display:inline-block; width:40px; height:20px;">
                   <input type="checkbox" id="setting-override" style="opacity:0; width:0; height:0;">
@@ -674,6 +883,15 @@
 
               <div class="form-group" style="margin-top:15px;">
                 <div style="display:flex; justify-content:space-between;">
+                  <label class="form-label">Simulation Distance</label>
+                  <span id="label-simulation" style="color:var(--primary); font-size:12px;">12 Chunks</span>
+                </div>
+                <input type="range" id="setting-simulation" min="2" max="32" value="12" class="form-range"
+                  style="width:100%; margin-top:8px;">
+              </div>
+
+              <div class="form-group" style="margin-top:15px;">
+                <div style="display:flex; justify-content:space-between;">
                   <label class="form-label">Max Framerate</label>
                   <span id="label-fps" style="color:var(--primary); font-size:12px;">120 fps</span>
                 </div>
@@ -688,6 +906,69 @@
                 </div>
                 <input type="range" id="setting-vol" min="0" max="100" value="100" class="form-range"
                   style="width:100%; margin-top:8px;">
+              </div>
+
+              <!-- Dropdowns Row -->
+              <div style="display:flex; gap:12px; margin-top:15px;">
+                <!-- Graphics Mode -->
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label">Graphics</label>
+                  <select id="setting-graphics"
+                    style="width:100%; margin-top:8px; padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:var(--text); font-size:13px; font-family: inherit; outline:none; cursor:pointer;">
+                    <option value="0">Fast</option>
+                    <option value="1" selected>Fancy</option>
+                    <option value="2">Fabulous!</option>
+                  </select>
+                </div>
+                <!-- GUI Scale -->
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label">GUI Scale</label>
+                  <select id="setting-guiscale"
+                    style="width:100%; margin-top:8px; padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:var(--text); font-size:13px; font-family: inherit; outline:none; cursor:pointer;">
+                    <option value="0" selected>Auto</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Switches Row -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-top:20px;">
+                <!-- VSync -->
+                <div
+                  style="display:flex; flex-direction:column; align-items:center; background:var(--surface-hover); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05); text-align:center;">
+                  <label class="form-label" style="font-size:11px; margin-bottom:6px; cursor:pointer;"
+                    for="setting-vsync">VSync</label>
+                  <label class="switch" style="position:relative; display:inline-block; width:40px; height:20px;">
+                    <input type="checkbox" id="setting-vsync" checked style="opacity:0; width:0; height:0;">
+                    <span class="slider round"
+                      style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
+                  </label>
+                </div>
+                <!-- View Bobbing -->
+                <div
+                  style="display:flex; flex-direction:column; align-items:center; background:var(--surface-hover); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05); text-align:center;">
+                  <label class="form-label" style="font-size:11px; margin-bottom:6px; cursor:pointer;"
+                    for="setting-bobview">Bobbing</label>
+                  <label class="switch" style="position:relative; display:inline-block; width:40px; height:20px;">
+                    <input type="checkbox" id="setting-bobview" checked style="opacity:0; width:0; height:0;">
+                    <span class="slider round"
+                      style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
+                  </label>
+                </div>
+                <!-- Shadows -->
+                <div
+                  style="display:flex; flex-direction:column; align-items:center; background:var(--surface-hover); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05); text-align:center;">
+                  <label class="form-label" style="font-size:11px; margin-bottom:6px; cursor:pointer;"
+                    for="setting-shadows">Shadows</label>
+                  <label class="switch" style="position:relative; display:inline-block; width:40px; height:20px;">
+                    <input type="checkbox" id="setting-shadows" checked style="opacity:0; width:0; height:0;">
+                    <span class="slider round"
+                      style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -888,6 +1169,20 @@
                     style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
                 </label>
               </div>
+              <div class="form-group"
+                style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; background:var(--surface-hover); padding:16px; border-radius:var(--r-lg); border:1px solid rgba(255,255,255,0.05);">
+                <div>
+                  <label class="form-label" style="margin-bottom:4px;">Show Server on Discord RPC</label>
+                  <p class="form-hint" style="margin:0;">If enabled, your current server IP will be shown in your
+                    Discord status.</p>
+                </div>
+                <label class="switch"
+                  style="position:relative; display:inline-block; width:40px; height:20px; flex-shrink:0;">
+                  <input type="checkbox" id="setting-show-server" checked style="opacity:0; width:0; height:0;">
+                  <span class="slider round"
+                    style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:rgba(255,255,255,0.1); transition:.4s; border-radius:34px;"></span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -899,7 +1194,7 @@
               <h3 class="settings-section-title">About</h3>
               <div class="about-row">
                 <span class="about-label">Launcher Version</span>
-                <span class="about-value">1.0.1</span>
+                <span class="about-value">1.0.2</span>
               </div>
               <div class="about-row">
                 <span class="about-label">Platform</span>

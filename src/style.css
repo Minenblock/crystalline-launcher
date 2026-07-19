@@ -1,5 +1,10 @@
 @import "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Montserrat:wght@600;700;800;900&display=swap";
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 :root {
   --primary: #d946ef;
   --primary-dim: #d946ef26;
@@ -48,6 +53,13 @@ select option {
 a {
   color: inherit;
   text-decoration: none;
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
 }
 
 body {

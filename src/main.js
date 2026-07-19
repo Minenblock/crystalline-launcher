@@ -52,7 +52,9 @@ const listShaderpacks = document.getElementById('list-shaderpacks');
 
 const ramInput = document.getElementById('setting-ram');
 const javaInput = document.getElementById('setting-java');
+
 const allowJoinToggle = document.getElementById('setting-allow-join');
+const showServerToggle = document.getElementById('setting-show-server');
 const partySoundsToggle = document.getElementById('setting-party-sounds');
 const saveSettingsBtn = document.getElementById('save-settings-btn');
 const newInstanceBtn = document.getElementById('new-instance-btn');
@@ -148,7 +150,7 @@ window.showToast = function (options) {
       toast.classList.add('error-toast');
       progressBar.style.background = 'var(--error)';
       toast.querySelector('.toast-title').style.color = 'var(--error)';
-      
+
       // Save to notification history
       notificationHistory.unshift({
         id: Date.now() + Math.random().toString(36).substr(2, 9),
@@ -241,7 +243,7 @@ window.showToast = function (options) {
 function renderNotifications() {
   const listEl = document.getElementById('notifications-list');
   if (!listEl) return;
-  
+
   if (notificationHistory.length === 0) {
     listEl.innerHTML = `
       <div class="empty-state">
@@ -260,7 +262,7 @@ function renderNotifications() {
     card.style.padding = '16px';
     card.style.borderLeft = '4px solid var(--error)';
     card.style.position = 'relative';
-    
+
     let htmlContent = `
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
         <h4 style="margin: 0; font-size: 14px; color: var(--error);">${notif.title}</h4>
@@ -270,7 +272,7 @@ function renderNotifications() {
         ${notif.message}
       </div>
     `;
-    
+
     if (notif.errorDetails) {
       htmlContent += `
         <div style="background: rgba(0,0,0,0.4); border-radius: var(--r-sm); border: 1px solid rgba(255,255,255,0.05); padding: 10px; margin-top: 12px; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-dim); overflow-x: auto; max-height: 150px;">
@@ -278,7 +280,7 @@ function renderNotifications() {
         </div>
       `;
     }
-    
+
     card.innerHTML = htmlContent;
     listEl.appendChild(card);
   });
@@ -293,36 +295,59 @@ document.getElementById('btn-clear-notifications')?.addEventListener('click', ()
 let isLoggedIn = false;
 let isUpdateAvailable = false;
 
-async function updateAuthUI(success, username) {
+async function updateAuthUI(success, username, isOffline = false) {
+  const btnCreateParty = document.getElementById('btn-create-party');
+  const partyLoginWarning = document.getElementById('party-login-warning');
   if (success) {
     isLoggedIn = true;
-    usernameDisplay.innerText = username;
+    usernameDisplay.innerText = isOffline ? `${username} (Offline)` : username;
     userAvatar.innerText = username.charAt(0).toUpperCase();
-    loginBtn.innerText = '✕'; // Logout icon
+    loginBtn.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#ic-logout"/></svg>'; // Logout icon
     loginBtn.title = "Logout";
     loginBtn.style.background = 'rgba(255, 50, 50, 0.15)';
     loginBtn.style.color = 'var(--error)';
     loginBtn.style.borderColor = 'rgba(255, 50, 50, 0.3)';
     playBtn.disabled = false;
     playLabel.innerText = isUpdateAvailable ? 'Update Modpack' : 'Play';
+    if (btnCreateParty) btnCreateParty.style.display = currentDiscordUser ? 'block' : 'none';
+    if (partyLoginWarning) partyLoginWarning.style.display = 'none';
+    if (isOffline) {
+      window.showToast({
+        title: 'Offline Mode',
+        message: 'Could not reach Microsoft servers. You can play already installed instances.',
+        type: 'warn',
+        duration: 7000
+      });
+    }
   } else {
     isLoggedIn = false;
     usernameDisplay.innerText = 'Not logged in';
     userAvatar.innerText = '?';
-    loginBtn.innerText = '→'; // Login icon
+    loginBtn.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#ic-login"/></svg>'; // Login icon
     loginBtn.title = "Sign in with Microsoft";
     loginBtn.style.background = '';
     loginBtn.style.color = '';
     loginBtn.style.borderColor = '';
     playBtn.disabled = true;
     playLabel.innerText = 'Login to Play';
+    if (btnCreateParty) btnCreateParty.style.display = 'none';
+    if (partyLoginWarning) partyLoginWarning.style.display = 'block';
+
+    // Automatically leave the party if logged out
+    if (typeof currentPartyState !== 'undefined' && currentPartyState) {
+      await window.electronAPI.leaveParty(typeof currentDiscordUser !== 'undefined' && currentDiscordUser ? currentDiscordUser.id : null);
+      currentPartyState = null;
+      const partyPanel = document.getElementById('party-panel');
+      if (partyPanel) partyPanel.style.display = 'none';
+      if (btnCreateParty) btnCreateParty.style.display = 'none';
+    }
   }
   loginBtn.disabled = false;
 }
 
 // Check auth on startup
 window.electronAPI.checkAuth().then(res => {
-  if (res.success) updateAuthUI(true, res.username);
+  if (res.success) updateAuthUI(true, res.username, res.offline === true);
 });
 
 // Check modpack update on startup
@@ -536,6 +561,38 @@ if (detailFolderBtn) {
     if (currentInstanceId) window.electronAPI.openInstanceFolder(currentInstanceId);
   });
 }
+const detailExportBtn = document.getElementById('detail-export-btn');
+if (detailExportBtn) {
+  detailExportBtn.addEventListener('click', async () => {
+    if (!currentInstanceId) return;
+
+    detailExportBtn.disabled = true;
+    detailExportBtn.innerHTML = '<svg class="icon" style="width:14px;height:14px;animation:spin 1s linear infinite"><use href="#ic-clock"/></svg> Exporting...';
+
+    const res = await window.electronAPI.exportInstance(currentInstanceId).catch(e => ({ success: false, error: e.message }));
+
+    detailExportBtn.disabled = false;
+    detailExportBtn.innerHTML = '<svg class="icon" style="width:14px;height:14px"><use href="#ic-export"/></svg> Export';
+
+    if (!res) return; // user canceled
+    if (res.error === 'Save canceled') return;
+
+    if (res.success) {
+      window.showToast({
+        title: 'Backup Created',
+        message: `Instance successfully exported to:\n${res.path}`,
+        type: 'success',
+        duration: 6000
+      });
+    } else {
+      window.showToast({
+        title: 'Export Failed',
+        message: res.error || 'An unknown error occurred.',
+        type: 'error'
+      });
+    }
+  });
+}
 if (detailDeleteBtn) {
   detailDeleteBtn.addEventListener('click', async () => {
     if (!currentInstanceId) return;
@@ -607,6 +664,7 @@ window.electronAPI.onMcLog((data) => {
 
         frag.appendChild(div);
       }
+      const isAtBottom = (instanceLogs.scrollHeight - instanceLogs.clientHeight - instanceLogs.scrollTop) < 50;
       instanceLogs.appendChild(frag);
       logQueue = [];
       logFlushTimer = null;
@@ -616,7 +674,9 @@ window.electronAPI.onMcLog((data) => {
         instanceLogs.removeChild(instanceLogs.firstChild);
       }
 
-      instanceLogs.scrollTop = instanceLogs.scrollHeight;
+      if (isAtBottom) {
+        instanceLogs.scrollTop = instanceLogs.scrollHeight;
+      }
     }, 100); // flush every 100ms
   }
 
@@ -627,24 +687,85 @@ window.electronAPI.onMcLog((data) => {
     const ip = joinMatch[1];
     const port = joinMatch[2] && joinMatch[2] !== '25565' ? `:${joinMatch[2]}` : '';
     currentServerIp = ip + port;
-
+    if (window.updateMyStatus) window.updateMyStatus();
   }
   // Detect disconnect
-  if (data.includes('Disconnecting') || data.includes('disconnect.genericReason')) {
+  if (data.includes('Disconnecting') || data.includes('Disconnected') || data.includes('Connection lost') || data.includes('disconnect.genericReason')) {
     isPlayingNextbots = false;
     currentServerIp = null;
     if (window.updateMyStatus) window.updateMyStatus();
-
   }
 });
 
 // ─── Discord status ─────────────────────────────────────────────
+let isDiscordLinked = false;
+let isOAuthActive = false;
+let isRpcActive = false;
+let currentDiscordUser = null;
+let currentPartyState = null;
+
 window.electronAPI.onDiscordStatus((status) => {
   const connected = !status.toLowerCase().includes('fail') && !status.toLowerCase().includes('error');
   discordDot.className = 'status-dot ' + (connected ? 'online' : 'offline');
   discordStatus.innerText = connected ? 'Discord connected' : 'Discord offline';
   statDiscord.innerText = connected ? 'Online' : 'Offline';
+
+  isRpcActive = connected;
+  // Do NOT set isDiscordLinked here — that requires actual user data from onDiscordLocalUser or OAuth
+  if (!connected && !isOAuthActive) {
+    // RPC disconnected and no OAuth — clear user state
+    isDiscordLinked = false;
+    currentDiscordUser = null;
+  }
 });
+
+if (window.electronAPI.onDiscordLocalUser) {
+  window.electronAPI.onDiscordLocalUser((user) => {
+    if (user) {
+      isDiscordLinked = true;
+      isRpcActive = true;
+      currentDiscordUser = { 
+        id: user.id, 
+        name: user.username || user.global_name || user.name || 'Unknown', 
+        avatar: user.avatar 
+      };
+      
+      const myAvatarEl = document.getElementById('my-discord-avatar');
+      if (myAvatarEl && user.id) {
+        if (user.avatar) {
+          myAvatarEl.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
+        } else {
+          myAvatarEl.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+        }
+        myAvatarEl.style.display = 'block';
+      }
+
+      const myStatusEl = document.getElementById('my-discord-status');
+      if (myStatusEl) {
+        myStatusEl.innerText = 'Connected (Discord Active)';
+        myStatusEl.style.color = 'var(--success)';
+      }
+
+      // Now we have real user data — mark as linked and show Create Party button if MS-logged in
+      isDiscordLinked = true;
+      const btnCP = document.getElementById('btn-create-party');
+      if (btnCP && isLoggedIn && !currentPartyState) {
+        btnCP.style.display = 'block';
+      }
+
+      // Automatically initialize updateMyStatus if not done yet
+      if (!window.updateMyStatus) {
+        window.updateMyStatus = (viewText) => {
+          const myStatus = document.getElementById('my-discord-status');
+          if (myStatus) {
+            myStatus.innerText = viewText || 'In Dashboard';
+            myStatus.style.color = 'var(--text-dim)';
+          }
+        };
+      }
+    }
+  });
+}
 
 if (window.electronAPI.onDiscordBridgeUpdate) {
   window.electronAPI.onDiscordBridgeUpdate((serverIp) => {
@@ -652,7 +773,10 @@ if (window.electronAPI.onDiscordBridgeUpdate) {
     isPlayingNextbots = !!serverIp;
     if (window.updateMyStatus) window.updateMyStatus();
     window.electronAPI.checkDiscordAuth().then(res => {
-      if (res.success) updateDiscordUI(res);
+      if (res.success) {
+        isOAuthActive = true;
+        updateDiscordUI(res);
+      }
     });
   });
 }
@@ -666,20 +790,27 @@ if (refreshFriendsBtn) {
     refreshFriendsBtn.innerText = '↻ Refreshing...';
     refreshFriendsBtn.disabled = true;
     const res = await window.electronAPI.checkDiscordAuth();
-    if (res.success) updateDiscordUI(res);
+    if (res.success) {
+      isOAuthActive = true;
+      updateDiscordUI(res);
+    } else {
+      isOAuthActive = false;
+      if (!isRpcActive) isDiscordLinked = false;
+    }
     refreshFriendsBtn.innerText = '↻ Refresh';
     refreshFriendsBtn.disabled = false;
   });
 }
 
-let isDiscordLinked = false;
-let currentDiscordUser = null;
-let currentPartyState = null;
-
 // Auto-init Discord state on startup — no Refresh needed
 setTimeout(async () => {
   const res = await window.electronAPI.checkDiscordAuth();
-  if (res.success) updateDiscordUI(res);
+  if (res.success) {
+    isOAuthActive = true;
+    updateDiscordUI(res);
+  } else {
+    isOAuthActive = false;
+  }
 }, 2500);
 
 if (discordLoginBtn) {
@@ -688,16 +819,20 @@ if (discordLoginBtn) {
       discordLoginBtn.innerText = 'Unlinking...';
       const res = await window.electronAPI.discordLogout();
       if (res.success) {
-        isDiscordLinked = false;
+        isOAuthActive = false;
+        if (!isRpcActive) {
+          isDiscordLinked = false;
+          currentDiscordUser = null;
+        }
         discordLoginBtn.innerText = 'Link';
         discordLoginBtn.style.background = '';
         discordLoginBtn.style.color = '';
         discordLoginBtn.style.borderColor = '';
         const myAvatarEl = document.getElementById('my-discord-avatar');
-        if (myAvatarEl) myAvatarEl.style.display = 'none';
+        if (myAvatarEl && !isRpcActive) myAvatarEl.style.display = 'none';
 
         const myStatusEl = document.getElementById('my-discord-status');
-        if (myStatusEl) {
+        if (myStatusEl && !isRpcActive) {
           myStatusEl.innerText = 'Discord offline';
           myStatusEl.style.color = 'var(--text-dim)';
         }
@@ -709,6 +844,7 @@ if (discordLoginBtn) {
       discordLoginBtn.innerText = 'Linking...';
       const res = await window.electronAPI.discordLogin();
       if (res.success) {
+        isOAuthActive = true;
         updateDiscordUI(res);
       } else {
         discordLoginBtn.innerText = 'Link';
@@ -722,6 +858,7 @@ if (discordLoginBtn) {
 function updateDiscordUI(res) {
   if (res.success) {
     isDiscordLinked = true;
+    isOAuthActive = true;
     if (discordLoginBtn) {
       discordLoginBtn.innerText = 'Unlink';
       discordLoginBtn.disabled = false;
@@ -731,12 +868,28 @@ function updateDiscordUI(res) {
     }
 
     if (res.user) {
-      currentDiscordUser = { id: res.user.id, name: res.user.username, avatar: res.user.avatar };
+      currentDiscordUser = { 
+        id: res.user.id, 
+        name: res.user.username || res.user.global_name || res.user.name || 'Unknown', 
+        avatar: res.user.avatar 
+      };
       const myAvatarEl = document.getElementById('my-discord-avatar');
       if (myAvatarEl && res.user.id) {
-        myAvatarEl.src = `https://cdn.discordapp.com/avatars/${res.user.id}/${res.user.avatar}.png`;
+        if (res.user.avatar) {
+          myAvatarEl.src = `https://cdn.discordapp.com/avatars/${res.user.id}/${res.user.avatar}.png`;
+        } else {
+          myAvatarEl.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+        }
         myAvatarEl.style.display = 'block';
       }
+
+      // Reveal Create Party button now that we have real user data
+      const btnCP = document.getElementById('btn-create-party');
+      if (btnCP && isLoggedIn && !currentPartyState) {
+        btnCP.style.display = 'block';
+      }
+      const partyLoginWarning = document.getElementById('party-login-warning');
+      if (partyLoginWarning) partyLoginWarning.style.display = 'none';
     }
 
     window.updateMyStatus = (viewText) => {
@@ -768,7 +921,7 @@ function updateDiscordUI(res) {
               const inst = resInst.instances?.find(i => i.id === runningInstanceId);
               window.electronAPI.updateDiscordPresence({
                 details: 'Playing Crystalline',
-                state: `In Instance: ${runningInstanceId}`,
+                state: 'In Main Menu / Singleplayer',
                 instanceId: runningInstanceId
               });
               updatePartyStatus(`Playing Minecraft ${inst?.version || ''}`);
@@ -935,18 +1088,38 @@ function updateDiscordUI(res) {
       `;
     }
   } else {
-    isDiscordLinked = false;
-    if (discordLoginBtn) {
-      discordLoginBtn.innerText = 'Link';
-      discordLoginBtn.disabled = false;
-      discordLoginBtn.style.background = '';
-      discordLoginBtn.style.color = '';
-      discordLoginBtn.style.borderColor = '';
-    }
-    if (friendsGrid) {
-      friendsGrid.innerHTML = `
-        <div class="empty-state"></div>
-      `;
+    // OAuth token expired or invalid — only reset linked state if RPC is also not active
+    isOAuthActive = false;
+    if (!isRpcActive) {
+      isDiscordLinked = false;
+      currentDiscordUser = null;
+      if (discordLoginBtn) {
+        discordLoginBtn.innerText = 'Link';
+        discordLoginBtn.disabled = false;
+        discordLoginBtn.style.background = '';
+        discordLoginBtn.style.color = '';
+        discordLoginBtn.style.borderColor = '';
+      }
+      if (friendsGrid) {
+        friendsGrid.innerHTML = `<div class="empty-state"></div>`;
+      }
+    } else {
+      // RPC is still active: keep user data but clear the friends list (needs OAuth)
+      if (friendsGrid) {
+        friendsGrid.innerHTML = `
+          <div class="empty-state" style="color:var(--text-dim); font-size:13px; padding:16px;">
+            Friends list requires a fresh Discord link. Click "Link" to reconnect.
+          </div>
+        `;
+      }
+      // Show "Link" button again so user can re-authorize without losing their RPC state
+      if (discordLoginBtn) {
+        discordLoginBtn.innerText = 'Link';
+        discordLoginBtn.disabled = false;
+        discordLoginBtn.style.background = '';
+        discordLoginBtn.style.color = '';
+        discordLoginBtn.style.borderColor = '';
+      }
     }
     if (res.error) {
       window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
@@ -1002,6 +1175,10 @@ window.electronAPI.onDiscordActivityJoin(async (secret) => {
   console.log('[INVITE] discord-activity-join received, secret:', secret);
   if (secret) {
     if (secret.startsWith('group:')) {
+      if (!isLoggedIn) {
+        window.showToast({ title: 'Error', message: 'You must be logged in with a Microsoft Account to join a party.', type: 'error' });
+        return;
+      }
       const gParts = secret.split(':');
       if (gParts.length < 3) {
         console.warn('[INVITE] Invalid group secret format:', secret);
@@ -1217,15 +1394,58 @@ window.electronAPI.onDiscordJoinRequest(async (user) => {
     ? `<img src="${avatarUrl}" alt="Server Icon" style="width:48px;height:48px;border-radius:50%;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;">`
     : '';
   const tag = user.discriminator && user.discriminator !== '0' ? `#${user.discriminator}` : '';
+  
+  const hasParty = !!currentPartyState;
+  const textHtml = hasParty
+    ? `<b>${user.username}${tag}</b> wants to join your party.`
+    : `<b>${user.username}${tag}</b> wants to join. Accepting this request will automatically create a party.`;
+
   const result = await window.showToast({
     title: 'Join Request',
-    html: `${avatarHtml}<b>${user.username}${tag}</b> wants to join your party.`,
+    html: `${avatarHtml}${textHtml}`,
     type: 'invite',
     confirmButtonText: '✓ Accept',
     cancelButtonText: '✕ Deny',
     duration: 30000
   });
+
   if (result.isConfirmed) {
+    if (!isLoggedIn) {
+      window.showToast({ title: 'Error', message: 'You must be logged in with a Microsoft Account to manage parties.', type: 'error' });
+      return;
+    }
+
+    if (!hasParty) {
+      if (!currentDiscordUser) {
+        window.showToast({ title: 'Error', message: 'Not connected to Discord.', type: 'error' });
+        return;
+      }
+      const res = await window.electronAPI.createParty({
+        id: currentDiscordUser.id,
+        name: currentDiscordUser.name,
+        avatar: currentDiscordUser.avatar
+      });
+      if (res && res.groupId) {
+        currentPartyState = res;
+        btnCreateParty.style.display = 'none';
+        partyPanel.style.display = 'flex';
+        renderPartyMembers([{ id: currentDiscordUser.id, name: currentDiscordUser.name, avatar: currentDiscordUser.avatar }]);
+        
+        if (isDiscordLinked) {
+          window.electronAPI.checkDiscordAuth().then(authRes => {
+            if (authRes.success) updateDiscordUI(authRes);
+          });
+        }
+
+        if (window.updateMyStatus) {
+          window.updateMyStatus();
+        }
+      } else {
+        window.showToast({ title: 'Error', message: 'Failed to automatically create a party.', type: 'error' });
+        return;
+      }
+    }
+
     await window.electronAPI.approveJoinRequest(user.id);
   } else {
     await window.electronAPI.denyJoinRequest(user.id);
@@ -1240,8 +1460,12 @@ const partyMembersDiv = document.getElementById('party-members');
 
 if (btnCreateParty) {
   btnCreateParty.addEventListener('click', async () => {
+    if (!isLoggedIn) {
+      window.showToast({ title: 'Error', message: 'You must be logged in with a Microsoft Account to create a party.', type: 'error' });
+      return;
+    }
     if (!currentDiscordUser) {
-      window.showToast({ title: 'Error', message: 'An error occurred.', errorDetails: String(typeof err !== 'undefined' && err ? (err.message || err.error || err) : (typeof e !== 'undefined' && e ? (e.message || e.reason || e.error || e) : (typeof res !== 'undefined' && res ? (res.error || res.message || res) : 'Unknown error'))), type: 'error' });
+      window.showToast({ title: 'Discord Required', message: 'Please link your Discord account first to create a party.', type: 'error' });
       return;
     }
     const res = await window.electronAPI.createParty({
@@ -1360,7 +1584,7 @@ function appendChatMessage(msg, isSelf) {
       const audio = new Audio('./notification.mp3');
       audio.volume = 0.5;
       audio.play().catch(e => console.warn("Could not play notification sound:", e));
-    } catch (e) {}
+    } catch (e) { }
   }
 }
 
@@ -1618,6 +1842,7 @@ async function loadInstances() {
   const res = await window.electronAPI.getInstances();
   if (res.success && res.instances) {
     instancesGrid.innerHTML = '';
+    const isPlayDisabled = (isLaunching || runningInstanceId) ? 'disabled style="opacity: 0.5; pointer-events: none;"' : '';
     for (const inst of res.instances) {
       const loaderDisplay = inst.loaderVersion ? `${inst.loader} ${inst.loaderVersion}` : inst.loader;
       const loaderName = (inst.loader || 'vanilla').toLowerCase();
@@ -1626,13 +1851,13 @@ async function loadInstances() {
         <div class="instance-card glass-panel" data-id="${inst.id}" style="cursor: pointer;">
           <div class="instance-icon">
             <img src="${logoSrc}" onload="this.style.display='block'; this.nextElementSibling.style.display='none';" style="display: none; width: 28px; height: 28px; object-fit: contain;">
-            <span>⛏</span>
+            <span><svg class="icon" style="width:28px;height:28px"><use href="#ic-pickaxe"/></svg></span>
           </div>
           <div class="instance-info">
             <h3 class="instance-name">${inst.name}</h3>
             <p class="instance-meta">Minecraft ${inst.version} · ${loaderDisplay}</p>
           </div>
-          <button class="btn-play-sm" data-id="${inst.id}">▶</button>
+          <button class="btn-play-sm" data-id="${inst.id}" ${isPlayDisabled}><svg class="icon" style="width:12px;height:12px"><use href="#ic-play"/></svg></button>
         </div>
       `;
     }
@@ -1650,13 +1875,14 @@ async function loadInstances() {
         lastPlayedContent.innerHTML = '';
         for (const inst of top3) {
           const dateStr = inst.lastPlayed ? new Date(inst.lastPlayed).toLocaleString() : 'Never';
+          const isPlayDisabledTop = (isLaunching || runningInstanceId) ? 'disabled style="opacity: 0.5; pointer-events: none; width:24px; height:24px; font-size:10px;"' : 'style="width:24px; height:24px; font-size:10px;"';
           lastPlayedContent.innerHTML += `
             <div style="display:flex; justify-content:space-between; align-items:center; padding: 6px; border-radius:4px; background: rgba(255,255,255,0.05);">
               <div>
                 <div style="font-size:13px; font-weight:600; color:var(--text);">${inst.name}</div>
                 <div style="font-size:11px; color:var(--text-dim);">${dateStr}</div>
               </div>
-              <button class="btn-play-sm" data-id="${inst.id}" style="width:24px; height:24px; font-size:10px;">▶</button>
+              <button class="btn-play-sm" data-id="${inst.id}" ${isPlayDisabledTop}><svg class="icon" style="width:10px;height:10px"><use href="#ic-play"/></svg></button>
             </div>
           `;
         }
@@ -1684,6 +1910,10 @@ async function loadInstances() {
             detailStatus.innerText = 'Busy...';
             if (detailPlayBtn) detailPlayBtn.disabled = true;
             if (detailPlayLabel) detailPlayLabel.innerText = 'Starting...';
+          } else if (runningInstanceId) {
+            detailStatus.innerText = runningInstanceId === inst.id ? 'Game is running' : 'Another instance is running';
+            if (detailPlayBtn) detailPlayBtn.disabled = true;
+            if (detailPlayLabel) detailPlayLabel.innerText = runningInstanceId === inst.id ? 'Running' : 'Play';
           } else {
             detailStatus.innerText = 'Ready';
             if (detailPlayBtn) detailPlayBtn.disabled = false;
@@ -2089,6 +2319,7 @@ const cardGameSettings = document.getElementById('card-game-settings');
 
 const fovInput = document.getElementById('setting-fov');
 const renderInput = document.getElementById('setting-render');
+const simulationInput = document.getElementById('setting-simulation');
 const fpsInput = document.getElementById('setting-fps');
 const volInput = document.getElementById('setting-vol');
 const volMusic = document.getElementById('setting-vol-music');
@@ -2101,14 +2332,22 @@ const volPlayer = document.getElementById('setting-vol-player');
 const volAmbient = document.getElementById('setting-vol-ambient');
 const volVoice = document.getElementById('setting-vol-voice');
 
+const graphicsSelect = document.getElementById('setting-graphics');
+const guiscaleSelect = document.getElementById('setting-guiscale');
+const vsyncInput = document.getElementById('setting-vsync');
+const bobviewInput = document.getElementById('setting-bobview');
+const shadowsInput = document.getElementById('setting-shadows');
+
 const labelFov = document.getElementById('label-fov');
 const labelRender = document.getElementById('label-render');
+const labelSimulation = document.getElementById('label-simulation');
 const labelFps = document.getElementById('label-fps');
 const labelVol = document.getElementById('label-vol');
 
 function updateSliderLabels() {
   if (fovInput) labelFov.innerText = fovInput.value;
   if (renderInput) labelRender.innerText = renderInput.value + ' Chunks';
+  if (simulationInput) labelSimulation.innerText = simulationInput.value + ' Chunks';
   if (fpsInput) labelFps.innerText = fpsInput.value >= 260 ? 'Unlimited' : fpsInput.value + ' fps';
   if (volInput) labelVol.innerText = volInput.value + '%';
   if (volMusic) document.getElementById('label-vol-music').innerText = volMusic.value + '%';
@@ -2122,7 +2361,7 @@ function updateSliderLabels() {
   if (volVoice) document.getElementById('label-vol-voice').innerText = volVoice.value + '%';
 }
 
-[fovInput, renderInput, fpsInput, volInput, volMusic, volRecord, volWeather, volBlock, volHostile, volNeutral, volPlayer, volAmbient, volVoice].forEach(el => {
+[fovInput, renderInput, simulationInput, fpsInput, volInput, volMusic, volRecord, volWeather, volBlock, volHostile, volNeutral, volPlayer, volAmbient, volVoice].forEach(el => {
   if (el) el.addEventListener('input', updateSliderLabels);
 });
 
@@ -2149,12 +2388,16 @@ async function loadSettings() {
   if (s) {
     if (s.ram) ramInput.value = s.ram;
     if (s.javaPath) javaInput.value = s.javaPath;
+
     if (s.override !== undefined && overrideInput) {
       overrideInput.checked = s.override;
       overrideInput.dispatchEvent(new Event('change'));
     }
     if (s.allowJoin !== undefined && allowJoinToggle) {
       allowJoinToggle.checked = s.allowJoin;
+    }
+    if (s.showServer !== undefined && showServerToggle) {
+      showServerToggle.checked = s.showServer;
     }
     if (s.partySounds !== undefined && partySoundsToggle) {
       partySoundsToggle.checked = s.partySounds;
@@ -2163,6 +2406,7 @@ async function loadSettings() {
       const mc = s.mcOptions;
       if (mc.fov !== undefined && fovInput) fovInput.value = mc.fov;
       if (mc.renderDistance !== undefined && renderInput) renderInput.value = mc.renderDistance;
+      if (mc.simulationDistance !== undefined && simulationInput) simulationInput.value = mc.simulationDistance;
       if (mc.maxFps !== undefined && fpsInput) fpsInput.value = mc.maxFps;
       if (mc.masterVolume !== undefined && volInput) volInput.value = mc.masterVolume;
       if (mc.volMusic !== undefined && volMusic) volMusic.value = mc.volMusic;
@@ -2174,6 +2418,11 @@ async function loadSettings() {
       if (mc.volPlayer !== undefined && volPlayer) volPlayer.value = mc.volPlayer;
       if (mc.volAmbient !== undefined && volAmbient) volAmbient.value = mc.volAmbient;
       if (mc.volVoice !== undefined && volVoice) volVoice.value = mc.volVoice;
+      if (mc.graphicsMode !== undefined && graphicsSelect) graphicsSelect.value = mc.graphicsMode;
+      if (mc.guiScale !== undefined && guiscaleSelect) guiscaleSelect.value = mc.guiScale;
+      if (mc.enableVsync !== undefined && vsyncInput) vsyncInput.checked = mc.enableVsync;
+      if (mc.bobView !== undefined && bobviewInput) bobviewInput.checked = mc.bobView;
+      if (mc.entityShadows !== undefined && shadowsInput) shadowsInput.checked = mc.entityShadows;
       updateSliderLabels();
     }
     // Restore close behavior
@@ -2212,6 +2461,7 @@ saveSettingsBtn.addEventListener('click', async () => {
   const mcOptions = {
     fov: fovInput ? parseInt(fovInput.value) : 90,
     renderDistance: renderInput ? parseInt(renderInput.value) : 12,
+    simulationDistance: simulationInput ? parseInt(simulationInput.value) : 12,
     maxFps: fpsInput ? parseInt(fpsInput.value) : 120,
     masterVolume: volInput ? parseInt(volInput.value) : 100,
     volMusic: volMusic ? parseInt(volMusic.value) : 100,
@@ -2222,7 +2472,12 @@ saveSettingsBtn.addEventListener('click', async () => {
     volNeutral: volNeutral ? parseInt(volNeutral.value) : 100,
     volPlayer: volPlayer ? parseInt(volPlayer.value) : 100,
     volAmbient: volAmbient ? parseInt(volAmbient.value) : 100,
-    volVoice: volVoice ? parseInt(volVoice.value) : 100
+    volVoice: volVoice ? parseInt(volVoice.value) : 100,
+    graphicsMode: graphicsSelect ? parseInt(graphicsSelect.value) : 1,
+    guiScale: guiscaleSelect ? parseInt(guiscaleSelect.value) : 0,
+    enableVsync: vsyncInput ? vsyncInput.checked : true,
+    bobView: bobviewInput ? bobviewInput.checked : true,
+    entityShadows: shadowsInput ? shadowsInput.checked : true
   };
 
   const selectedBehavior = document.querySelector('input[name="close-behavior"]:checked')?.value || 'tray';
@@ -2231,8 +2486,10 @@ saveSettingsBtn.addEventListener('click', async () => {
   const result = await window.electronAPI.saveSettings({
     ram: ramInput.value,
     javaPath: javaInput.value,
+
     override: overrideInput ? overrideInput.checked : false,
     allowJoin: allowJoinToggle ? allowJoinToggle.checked : true,
+    showServer: showServerToggle ? showServerToggle.checked : true,
     partySounds: partySoundsToggle ? partySoundsToggle.checked : true,
     closeBehavior: selectedBehavior,
     trayClickAction: selectedTrayClick,
@@ -2643,7 +2900,7 @@ function initPremiumFeatures() {
         .map(div => div.textContent)
         .join('\n');
       navigator.clipboard.writeText(text);
-      
+
       const originalText = btnCopyLogs.innerText;
       btnCopyLogs.innerText = 'Copied!';
       btnCopyLogs.style.background = 'var(--success)';
@@ -2670,25 +2927,86 @@ function initPremiumFeatures() {
       try {
         const totalBytes = await window.electronAPI.getSystemRam();
         const totalGb = Math.round(totalBytes / 1024 / 1024 / 1024);
-        
+
         let recommendedGb = Math.round(totalGb * 0.45);
         if (recommendedGb < 3) recommendedGb = 3;
         if (recommendedGb > 8) recommendedGb = 8;
-        
+
         const ramInput = document.getElementById('setting-ram');
         if (ramInput) {
           ramInput.value = recommendedGb + 'G';
           ramInput.dispatchEvent(new Event('change', { bubbles: true }));
           window.showToast({
-            title: 'RAM Empfohlen',
-            message: `Deinem System wurden optimal ${recommendedGb} GB RAM zugewiesen (von insgesamt ${totalGb} GB).`,
+            title: 'RAM Recommended',
+            message: `Your system has been allocated ${recommendedGb} GB RAM (from a total of ${totalGb} GB).`,
             type: 'success',
             duration: 4000
           });
         }
       } catch (err) {
         console.error("Failed to fetch system RAM:", err);
-        window.showToast({ title: 'Error', message: 'Konnte System-RAM nicht auslesen.', type: 'error' });
+        window.showToast({ title: 'Error', message: 'Could not read system RAM.', type: 'error' });
+      }
+    });
+  }
+
+  // Java Auto-Detection Listener
+  const btnDetectJava = document.getElementById('btn-detect-java');
+  const javaDetectedList = document.getElementById('java-detected-list');
+  if (btnDetectJava && javaDetectedList) {
+    btnDetectJava.addEventListener('click', async (e) => {
+      e.preventDefault();
+      btnDetectJava.innerText = 'Detecting...';
+      btnDetectJava.disabled = true;
+      try {
+        const javas = await window.electronAPI.detectJavaInstallations();
+        javaDetectedList.innerHTML = '';
+        if (!javas || javas.length === 0) {
+          javaDetectedList.innerHTML = '<div style="color:var(--text-dim); font-size:12px; text-align:center; padding:10px;">No Java runtimes found in standard directories.</div>';
+        } else {
+          javas.forEach(java => {
+            const row = document.createElement('div');
+            row.style.padding = '8px 12px';
+            row.style.marginBottom = '6px';
+            row.style.borderRadius = '6px';
+            row.style.background = 'rgba(255,255,255,0.03)';
+            row.style.cursor = 'pointer';
+            row.style.border = '1px solid rgba(255,255,255,0.05)';
+            row.style.transition = 'background 0.2s, border-color 0.2s';
+            row.innerHTML = `
+              <span style="font-weight:600; color:var(--text); font-size:12px; display:block;">${java.label}</span>
+              <span style="color:var(--text-dim); font-size:10px; display:block; word-break:break-all; margin-top:2px;">${java.path}</span>
+            `;
+            row.addEventListener('mouseenter', () => {
+              row.style.background = 'rgba(255,255,255,0.08)';
+              row.style.borderColor = 'var(--primary)';
+            });
+            row.addEventListener('mouseleave', () => {
+              row.style.background = 'rgba(255,255,255,0.03)';
+              row.style.borderColor = 'rgba(255,255,255,0.05)';
+            });
+            row.addEventListener('click', () => {
+              if (javaInput) {
+                javaInput.value = java.path;
+                javaInput.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              javaDetectedList.style.display = 'none';
+              window.showToast({
+                title: 'Java Selected',
+                message: `Set Java Path to: ${java.label}`,
+                type: 'success'
+              });
+            });
+            javaDetectedList.appendChild(row);
+          });
+        }
+        javaDetectedList.style.display = 'block';
+      } catch (err) {
+        console.error("Failed to detect Java:", err);
+        window.showToast({ title: 'Error', message: 'An error occurred during Java detection.', type: 'error' });
+      } finally {
+        btnDetectJava.innerText = 'Auto-Detect';
+        btnDetectJava.disabled = false;
       }
     });
   }
